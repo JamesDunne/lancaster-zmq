@@ -43,6 +43,11 @@ namespace WellDunne.LanCaster
             }
         }
 
+        public System.Collections.ObjectModel.ReadOnlyCollection<FileInfo> Files
+        {
+            get { return new System.Collections.ObjectModel.ReadOnlyCollection<FileInfo>(_files); }
+        }
+
         public override bool CanRead
         {
             get { return true; }
