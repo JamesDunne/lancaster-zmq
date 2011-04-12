@@ -12,19 +12,29 @@ namespace WellDunne.LanCaster.Client
     {
         static void Main(string[] args)
         {
-            var server = new LanCaster.ServerHost(new TarballStreamWriter(Enumerable.Empty<FileInfo>()));
-            var serverThread = new Thread(server.Run);
-
-            var client = new LanCaster.ClientHost();
-            var clientThread = new Thread(client.Run);
-
-            using (Context ctx = new Context(1))
+            // Get the current directory:
+            string path = Environment.CurrentDirectory;
+            // Get all files recursively from the current directory:
+            var files = new DirectoryInfo(path).GetFiles("*.*", SearchOption.AllDirectories);
+            var clientPath = new DirectoryInfo(Path.Combine(Path.GetTempPath(), "lcc"));
+            clientPath.Create();
+            
+            using (var serverTarball = new TarballStreamWriter(files))
             {
-                serverThread.Start(ctx);
-                clientThread.Start(ctx);
+                var server = new LanCaster.ServerHost(serverTarball, path);
+                var serverThread = new Thread(server.Run);
 
-                serverThread.Join();
-                clientThread.Join();
+                var client = new LanCaster.ClientHost(clientPath);
+                var clientThread = new Thread(client.Run);
+
+                using (Context ctx = new Context(1))
+                {
+                    serverThread.Start(ctx);
+                    clientThread.Start(ctx);
+
+                    serverThread.Join();
+                    clientThread.Join();
+                }
             }
         }
     }
