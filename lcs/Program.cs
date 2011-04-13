@@ -24,7 +24,7 @@ namespace WellDunne.LanCaster.Server
 
             using (var serverTarball = new TarballStreamWriter(files))
             {
-                var server = new LanCaster.ServerHost(endpoint, subscription, serverTarball, path);
+                var server = new LanCaster.ServerHost(endpoint, subscription, serverTarball, path, 32 * 1024);
                 var serverThread = new Thread(server.Run);
 
                 using (Context ctx = new Context(1))

@@ -20,15 +20,16 @@ namespace WellDunne.LanCaster
         private string endpoint;
         private BooleanSwitch doLogging;
 
-        public const int ChunkSize = 256 * 1024;
+        public int chunkSize;
 
-        public ServerHost(string endpoint, string subscription, TarballStreamWriter tarball, string basePath)
+        public ServerHost(string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize)
         {
             this.endpoint = endpoint;
             this.subscription = subscription;
             this.tarball = tarball;
             this.basePath = basePath;
-            this.numChunks = (int)(tarball.Length / ChunkSize) + ((tarball.Length % ChunkSize > 0) ? 1 : 0);
+            this.chunkSize = chunkSize;
+            this.numChunks = (int)(tarball.Length / chunkSize) + ((tarball.Length % chunkSize > 0) ? 1 : 0);
             this.numBitArrayBytes = ((numChunks + 7) & ~7) >> 3;
 
             if (this.numChunks == 0) throw new System.Exception();
@@ -105,7 +106,7 @@ namespace WellDunne.LanCaster
 
                     // TODO: use epgm:// protocol for multicast efficiency when we build that support into libzmq.dll for Windows.
                     //data.Rate = 20000L;
-                    data.SndBuf = ServerHost.ChunkSize * 80L;
+                    data.SndBuf = (uint)chunkSize * 80UL;
                     data.Bind("tcp://" + device + ":" + port.ToString());
 
                     // Bind the control reply socket:
@@ -147,6 +148,7 @@ namespace WellDunne.LanCaster
                                     ReadOnlyCollection<FileInfo> files = tarball.Files;
 
                                     sock.SendMore(BitConverter.GetBytes(numChunks));
+                                    sock.SendMore(BitConverter.GetBytes(chunkSize));
                                     sock.SendMore(BitConverter.GetBytes(tarball.Files.Count));
 
                                     foreach (var fi in files)
@@ -215,7 +217,7 @@ namespace WellDunne.LanCaster
 
                     int chunkIdx = 0;
                     BitArray currentNAKs = new BitArray(numBitArrayBytes * 8, false);
-                    byte[] buf = new byte[ChunkSize];
+                    byte[] buf = new byte[chunkSize];
                     int pollWait = 100;
                     int previousClientCount = 0;
 
@@ -223,8 +225,11 @@ namespace WellDunne.LanCaster
                     while (true)
                     {
                         trace("POLL {0}", pollWait);
-                        if (ctx.Poll(pollItems, pollWait) == 0)
-                            continue;
+                        if (ctx.Poll(pollItems, pollWait) != clients.Count)
+                        {
+                            if (clients.Count == previousClientCount)
+                                continue;
+                        }
 
                         // If any client state is dirty, OR all the NAKs amongst the joined clients:
                         if (clients.Values.Any(cli => cli.IsDirty) || (clients.Count != previousClientCount))
@@ -284,9 +289,9 @@ namespace WellDunne.LanCaster
                             data.SendMore(BitConverter.GetBytes(chunkIdx));
 
                             // Chunk size:
-                            tarball.Seek((long)chunkIdx * ChunkSize, SeekOrigin.Begin);
-                            int currChunkSize = tarball.Read(buf, 0, ChunkSize);
-                            if (currChunkSize < ChunkSize)
+                            tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
+                            int currChunkSize = tarball.Read(buf, 0, chunkSize);
+                            if (currChunkSize < chunkSize)
                             {
                                 // Copy to an exact-sized temporary buffer for the last uneven sized chunk:
                                 byte[] tmpBuf = new byte[currChunkSize];

@@ -18,6 +18,7 @@ namespace WellDunne.LanCaster
         private string subscription;
         private string endpoint;
         private BooleanSwitch doLogging;
+        private int chunkSize;
 
         public ClientHost(string endpoint, string subscription, DirectoryInfo downloadDirectory)
         {
@@ -61,7 +62,7 @@ namespace WellDunne.LanCaster
                     ctl.HWM = UInt64.Parse(hwmValue);
                 }
 
-                data.RcvBuf = ServerHost.ChunkSize * 20L;
+                data.RcvBuf = 256 * 1024 * 20L;
                 data.Connect("tcp://" + addr + ":" + port.ToString());
                 data.Subscribe(subscription, Encoding.Unicode);
 
@@ -88,6 +89,7 @@ namespace WellDunne.LanCaster
                 }
 
                 numChunks = BitConverter.ToInt32(reply.Dequeue(), 0);
+                chunkSize = BitConverter.ToInt32(reply.Dequeue(), 0);
                 int numFiles = BitConverter.ToInt32(reply.Dequeue(), 0);
 
                 List<TarballEntry> tbes = new List<TarballEntry>(numFiles);
@@ -143,7 +145,7 @@ namespace WellDunne.LanCaster
                         trace("RECV {0}", chunkIdx);
 
                         byte[] chunk = packet.Dequeue();
-                        tarball.Seek((long)chunkIdx * ServerHost.ChunkSize, SeekOrigin.Begin);
+                        tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
                         tarball.Write(chunk, 0, chunk.Length);
                         chunk = null;
 
