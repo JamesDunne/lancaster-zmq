@@ -40,6 +40,7 @@
       <HintPath>..\packages\clrzmq2.2.0.10.2010112000\lib\clrzmq.dll</HintPath>
     </Reference>
     <Reference Include="System" />
+    <Reference Include="System.configuration" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />

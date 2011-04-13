@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using ZMQ;
+using System.Configuration;
 
 namespace WellDunne.LanCaster
 {
@@ -92,10 +93,18 @@ namespace WellDunne.LanCaster
                         UInt16.TryParse(endpoint.Substring(idx + 1), out port);
                     }
 
+                    string hwmValue = ConfigurationManager.AppSettings["HWM"];
+                    if (hwmValue != null)
+                    {
+                        Console.WriteLine("Setting HWM to {0} messages", hwmValue);
+                        data.HWM = UInt64.Parse(hwmValue);
+                        ctl.HWM = UInt64.Parse(hwmValue);
+                    }
+
                     // Bind the data publisher socket:
-                    //data.Rate = 20000L;
-                    data.HWM = 100000000;
+
                     // TODO: use epgm:// protocol for multicast efficiency when we build that support into libzmq.dll for Windows.
+                    //data.Rate = 20000L;
                     data.Bind("tcp://" + device + ":" + port.ToString());
 
                     // Bind the control reply socket:
@@ -147,6 +156,7 @@ namespace WellDunne.LanCaster
                                         Console.WriteLine("{0,15} {1}", fi.Length, fiName);
                                         sock.SendMore(new byte[16]);
                                     }
+                                    Console.WriteLine("Chunks: {0}", numChunks);
 
                                     sock.Send("", Encoding.Unicode);
                                     trace("{0}: Sent JOINED response", clientIdentity.ToString());

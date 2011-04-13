@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using ZMQ;
+using System.Configuration;
 
 namespace WellDunne.LanCaster
 {
@@ -52,7 +53,14 @@ namespace WellDunne.LanCaster
                     UInt16.TryParse(endpoint.Substring(idx + 1), out port);
                 }
 
-                data.HWM = 100000000;
+                string hwmValue = ConfigurationManager.AppSettings["HWM"];
+                if (hwmValue != null)
+                {
+                    Console.WriteLine("Setting HWM to {0} messages", hwmValue);
+                    data.HWM = UInt64.Parse(hwmValue);
+                    ctl.HWM = UInt64.Parse(hwmValue);
+                }
+
                 data.Connect("tcp://" + addr + ":" + port.ToString());
                 data.Subscribe(subscription, Encoding.Unicode);
 
