@@ -134,6 +134,17 @@ namespace WellDunne.LanCaster
 
                         string sub = Encoding.Unicode.GetString(packet.Dequeue());
                         Debug.Assert(sub == this.subscription);
+
+                        string cmd = Encoding.Unicode.GetString(packet.Dequeue());
+                        if (cmd == "PING")
+                        {
+                            ctl.SendMore(ctl.Identity);
+                            ctl.Send("ALIVE", Encoding.Unicode);
+                            ctl.RecvAll();
+                            continue;
+                        }
+                        Debug.Assert(cmd == "DATA");
+
                         int chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
                         // Already received this chunk?
                         if (!naks[chunkIdx])

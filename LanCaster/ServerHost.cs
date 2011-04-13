@@ -60,6 +60,7 @@ namespace WellDunne.LanCaster
         private int numChunks;
         private int numBitArrayBytes;
         private Dictionary<Guid, ClientState> clients = new Dictionary<Guid, ClientState>();
+        private Dictionary<Guid, DateTimeOffset> clientTimeout = new Dictionary<Guid, DateTimeOffset>();
 
         private static void WriteBuffer(Stream st, byte[] buf)
         {
@@ -115,6 +116,8 @@ namespace WellDunne.LanCaster
                     // Wait for the sockets to bind:
                     Thread.Sleep(500);
 
+                    HashSet<Guid> clientsResponded = new HashSet<Guid>();
+
                     // Create a poller on the control socket to handle client requests:
                     PollItem[] pollItems = new PollItem[1];
                     pollItems[0] = ctl.CreatePollItem(IOMultiPlex.POLLIN);
@@ -126,6 +129,7 @@ namespace WellDunne.LanCaster
                             Queue<byte[]> request = sock.RecvAll();
 
                             Guid clientIdentity = new Guid(request.Dequeue().Skip(1).ToArray());
+                            clientTimeout[clientIdentity] = DateTimeOffset.UtcNow.AddSeconds(3);
 
                             string cmd = Encoding.Unicode.GetString(request.Dequeue());
 
@@ -185,6 +189,9 @@ namespace WellDunne.LanCaster
                                     clients[clientIdentity].NAK = new BitArray(tmp);
                                     trace("{0}: NAKs received", clientIdentity.ToString());
                                     sock.Send("OK", Encoding.Unicode);
+
+                                    if (!clientsResponded.Contains(clientIdentity))
+                                        clientsResponded.Add(clientIdentity);
                                     break;
 
                                 case "LEAVE":
@@ -201,6 +208,15 @@ namespace WellDunne.LanCaster
                                     trace("{0}: Client left", clientIdentity.ToString());
 
                                     // TODO: reset NAKs?!?
+                                    clientsResponded.Remove(clientIdentity);
+                                    clientTimeout.Remove(clientIdentity);
+                                    break;
+
+                                case "ALIVE":
+                                    sock.Send("", Encoding.Unicode);
+
+                                    if (!clientsResponded.Contains(clientIdentity))
+                                        clientsResponded.Add(clientIdentity);
                                     break;
 
                                 default:
@@ -218,18 +234,37 @@ namespace WellDunne.LanCaster
                     int chunkIdx = 0;
                     BitArray currentNAKs = new BitArray(numBitArrayBytes * 8, false);
                     byte[] buf = new byte[chunkSize];
-                    int pollWait = 100;
+                    int pollWait = 1000;
                     int previousClientCount = 0;
 
                     // Begin the main polling and data delivery loop:
                     while (true)
                     {
-                        trace("POLL {0}", pollWait);
-                        if (ctx.Poll(pollItems, pollWait) != clients.Count)
+                        //trace("POLL {0}", pollWait);
+                        ctx.Poll(pollItems, pollWait);
+
+                        // Wait for all clients to send back a response:
+                        if (clientsResponded.Count < clients.Count)
                         {
-                            if (clients.Count == previousClientCount)
+                            DateTimeOffset rightMeow = DateTimeOffset.UtcNow;
+                            
+                            // Anyone timed out yet?
+                            KeyValuePair<Guid, DateTimeOffset> timedOutClient = clientTimeout.FirstOrDefault(dt => dt.Value < rightMeow);
+                            if (timedOutClient.Key == Guid.Empty)
+                            {
+                                // Send a PING to all subscribers:
+                                data.SendMore(this.subscription, Encoding.Unicode);
+                                data.Send("PING", Encoding.Unicode);
+
                                 continue;
+                            }
+                            
+                            // Yes, remove that client:
+                            Console.WriteLine("{0}: Timeout expired.", timedOutClient.Key);
+                            clientTimeout.Remove(timedOutClient.Key);
+                            clients.Remove(timedOutClient.Key);
                         }
+                        clientsResponded.Clear();
 
                         // If any client state is dirty, OR all the NAKs amongst the joined clients:
                         if (clients.Values.Any(cli => cli.IsDirty) || (clients.Count != previousClientCount))
@@ -247,11 +282,11 @@ namespace WellDunne.LanCaster
                         {
                             previousClientCount = clients.Count;
 
-                            pollWait = 100000;
+                            //pollWait = 10000;
                             continue;
                         }
 
-                        pollWait = 100000;
+                        //pollWait = 10000;
 
                         // If the current chunk is not NAKed, find the next one that is:
                         //if (!currentNAKs[chunkIdx])
@@ -275,7 +310,7 @@ namespace WellDunne.LanCaster
 
                             if (!found)
                             {
-                                pollWait = 100000;
+                                //pollWait = 100000;
                                 continue;
                             }
                         }
@@ -286,6 +321,7 @@ namespace WellDunne.LanCaster
                             // Chunk index first:
                             trace("SEND chunk: {0}", chunkIdx);
                             data.SendMore(this.subscription, Encoding.Unicode);
+                            data.SendMore("DATA", Encoding.Unicode);
                             data.SendMore(BitConverter.GetBytes(chunkIdx));
 
                             // Chunk size:
