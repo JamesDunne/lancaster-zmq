@@ -64,6 +64,12 @@ namespace WellDunne.LanCaster
             }
         }
 
+        [Conditional("TarballTracing")]
+        private static void trace(string format, params object[] args)
+        {
+            Trace.WriteLine(String.Format(format, args), "reader");
+        }
+
         #region Public events
 
         public delegate void NotifyFileOpenedDelegate(TarballEntry file, bool created);
@@ -83,7 +89,7 @@ namespace WellDunne.LanCaster
             if (this._currFile == null) return;
             if (this._currIndex >= this._files.Count) this._currIndex = this._files.Count - 1;
             // Move on to the next file:
-            Trace.TraceInformation("Closing file '{0}'", this._files[this._currIndex].RelativePath);
+            trace("Closing file '{0}'", this._files[this._currIndex].RelativePath);
             this._currFile.Flush();
             this._currFile.Close();
             if (NotifyFileClosed != null) NotifyFileClosed(this._files[this._currIndex]);
@@ -95,7 +101,7 @@ namespace WellDunne.LanCaster
             if (this._currFile != null)
             {
                 if (this._currIndex >= this._files.Count) this._currIndex = this._files.Count - 1;
-                Trace.TraceInformation("Closing file '{0}'", this._files[this._currIndex].RelativePath);
+                trace("Closing file '{0}'", this._files[this._currIndex].RelativePath);
                 this._currFile.Flush();
                 this._currFile.Close();
                 if (NotifyFileClosed != null) NotifyFileClosed(this._files[this._currIndex]);
@@ -123,7 +129,7 @@ namespace WellDunne.LanCaster
             {
                 if (this._currFile != null)
                 {
-                    Trace.TraceInformation("Closing file '{0}'", this._files[this._files.Count - 1].RelativePath);
+                    trace("Closing file '{0}'", this._files[this._files.Count - 1].RelativePath);
                     this._currFile.Close();
                     this._currFile = null;
                     if (NotifyFileClosed != null) NotifyFileClosed(this._files[this._files.Count - 1]);
@@ -181,7 +187,7 @@ namespace WellDunne.LanCaster
             this._currPos = offset;
             if (this._currFile != null)
             {
-                Trace.TraceInformation("Closing file '{0}'", this._files[this._files.Count - 1].RelativePath);
+                trace("Closing file '{0}'", this._files[this._files.Count - 1].RelativePath);
                 this._currFile.Close();
                 this._currFile = null;
                 if (NotifyFileClosed != null) NotifyFileClosed(this._files[this._files.Count - 1]);
@@ -202,7 +208,7 @@ namespace WellDunne.LanCaster
             {
                 if (this._currFile != null)
                 {
-                    Trace.TraceInformation("Closing file '{0}'", this._files[this._files.Count - 1].RelativePath);
+                    trace("Closing file '{0}'", this._files[this._files.Count - 1].RelativePath);
                     this._currFile.Close();
                     this._currFile = null;
                     if (NotifyFileClosed != null) NotifyFileClosed(this._files[this._files.Count - 1]);
@@ -263,12 +269,12 @@ namespace WellDunne.LanCaster
                 if (this._currFile.Position + (count - totWritten) <= this._currSize)
                 {
                     int diff = count - totWritten;
-                    Trace.TraceInformation("Writing {1} bytes to file '{0}'", entry.RelativePath, diff);
+                    trace("Writing {1} bytes to file '{0}'", entry.RelativePath, diff);
                     long pos = this._currFile.Position;
                     
                     this._currFile.Write(buffer, offset + totWritten, diff);
 
-                    Trace.TraceInformation("Writing {1} bytes to file '{0}' complete", entry.RelativePath, diff);
+                    trace("Writing {1} bytes to file '{0}' complete", entry.RelativePath, diff);
                     
                     totWritten += diff;
                     this._currPos += diff;
@@ -284,12 +290,12 @@ namespace WellDunne.LanCaster
                     int diff = Math.Min((count - totWritten), (int)(this._currSize - this._currFile.Position));
                     if (diff > 0)
                     {
-                        Trace.TraceInformation("Writing {1} bytes to file '{0}'", entry.RelativePath, diff);
+                        trace("Writing {1} bytes to file '{0}'", entry.RelativePath, diff);
                         long pos = this._currFile.Position;
 
                         this._currFile.Write(buffer, offset + totWritten, diff);
 
-                        Trace.TraceInformation("Writing {1} bytes to file '{0}' complete", entry.RelativePath, diff);
+                        trace("Writing {1} bytes to file '{0}' complete", entry.RelativePath, diff);
                         
                         totWritten += diff;
                         this._currPos += diff;
@@ -305,7 +311,7 @@ namespace WellDunne.LanCaster
                 if (closeFile)
                 {
                     // Move on to the next file:
-                    Trace.TraceInformation("Closing file '{0}'", entry.RelativePath);
+                    trace("Closing file '{0}'", entry.RelativePath);
                     this._currFile.Close();
                     this._currFile = null;
                     if (NotifyFileClosed != null) NotifyFileClosed(entry);

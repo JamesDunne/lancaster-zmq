@@ -16,12 +16,19 @@ namespace WellDunne.LanCaster
         private int numChunks;
         private string subscription;
         private string endpoint;
+        private BooleanSwitch doLogging;
 
         public ClientHost(string endpoint, string subscription, DirectoryInfo downloadDirectory)
         {
             this.endpoint = endpoint;
             this.subscription = subscription;
             this.downloadDirectory = downloadDirectory;
+            this.doLogging = new BooleanSwitch("doLogging", "Log client events", "0");
+        }
+
+        private void trace(string format, params object[] args)
+        {
+            Trace.WriteLineIf(this.doLogging.Enabled, String.Format(format, args), "client");
         }
 
         /// <summary>
@@ -45,6 +52,7 @@ namespace WellDunne.LanCaster
                     UInt16.TryParse(endpoint.Substring(idx + 1), out port);
                 }
 
+                data.HWM = 100000000;
                 data.Connect("tcp://" + addr + ":" + port.ToString());
                 data.Subscribe(subscription, Encoding.Unicode);
 
@@ -88,21 +96,20 @@ namespace WellDunne.LanCaster
                 // Create the tarball reader that writes the files locally:
                 using (var tarball = new TarballStreamReader(downloadDirectory, tbes))
                 {
-
                     // Send a NAK message for all the chunks:
                     ctl.SendMore(ctl.Identity);
                     ctl.SendMore("NAK", Encoding.Unicode);
 
                     BitArray naks = new BitArray(numChunks, true);
-                    Trace.WriteLine(String.Format("Chunks: {0}", numChunks), "client");
+                    Console.WriteLine(String.Format("Chunks: {0}", numChunks), "client");
                     int numBytes = ((numChunks + 7) & ~7) >> 3;
                     byte[] nakBuf = new byte[numBytes];
                     naks.CopyTo(nakBuf, 0);
-                    Trace.WriteLine("CTL SEND NAK", "client");
+                    trace("CTL SEND NAK");
                     ctl.Send(nakBuf);
 
                     // Wait for the NAK reply:
-                    Trace.WriteLine("CTL RECV NAK", "client");
+                    trace("CTL RECV NAK");
                     ctl.RecvAll();
 
                     bool done = false;
@@ -119,11 +126,11 @@ namespace WellDunne.LanCaster
                         // Already received this chunk?
                         if (!naks[chunkIdx])
                         {
-                            Trace.WriteLine(String.Format("ALREADY RECV {0}", chunkIdx), "client");
+                            trace("ALREADY RECV {0}", chunkIdx);
                             return;
                         }
 
-                        Trace.WriteLine(String.Format("RECV {0}", chunkIdx), "client");
+                        trace("RECV {0}", chunkIdx);
 
                         byte[] chunk = packet.Dequeue();
                         tarball.Seek((long)chunkIdx * ServerHost.ChunkSize, SeekOrigin.Begin);
@@ -136,17 +143,17 @@ namespace WellDunne.LanCaster
                         ctl.SendMore(ctl.Identity);
                         ctl.SendMore("NAK", Encoding.Unicode);
                         naks.CopyTo(nakBuf, 0);
-                        Trace.WriteLine("CTL SEND NAK", "client");
+                        trace("CTL SEND NAK");
                         ctl.Send(nakBuf);
 
                         // Wait for the reply:
-                        Trace.WriteLine("CTL RECV NAK", "client");
+                        trace("CTL RECV NAK");
                         ctl.RecvAll();
 
                         // No more NAKed packets?
                         if (naks.Cast<bool>().All(b => !b))
                         {
-                            Trace.WriteLine("Completed", "client");
+                            Console.WriteLine("Completed");
                             done = true;
                         }
                     });
@@ -154,12 +161,12 @@ namespace WellDunne.LanCaster
                     // Begin the polling loop:
                     do
                     {
-                        Trace.WriteLine("POLL", "client");
+                        trace("POLL");
                         ctx.Poll(pollItems, 100000);
                     }
                     while (!done);
 
-                    Trace.WriteLine("Exiting", "client");
+                    Console.WriteLine("Exiting");
                     ctl.SendMore(ctl.Identity);
                     ctl.Send("LEAVE", Encoding.Unicode);
 

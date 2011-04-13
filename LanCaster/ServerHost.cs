@@ -17,8 +17,9 @@ namespace WellDunne.LanCaster
         private string basePath;
         private string subscription;
         private string endpoint;
+        private BooleanSwitch doLogging;
 
-        public const int ChunkSize = 10240;
+        public const int ChunkSize = 256 * 1024;
 
         public ServerHost(string endpoint, string subscription, TarballStreamWriter tarball, string basePath)
         {
@@ -30,6 +31,8 @@ namespace WellDunne.LanCaster
             this.numBitArrayBytes = ((numChunks + 7) & ~7) >> 3;
 
             if (this.numChunks == 0) throw new System.Exception();
+
+            this.doLogging = new BooleanSwitch("doLogging", "Log server events", "0");
         }
 
         private sealed class ClientState
@@ -61,9 +64,9 @@ namespace WellDunne.LanCaster
             st.Write(buf, 0, buf.Length);
         }
 
-        private static void trace(string format, params object[] args)
+        private void trace(string format, params object[] args)
         {
-            Trace.WriteLine(String.Format(format, args), "server");
+            Trace.WriteLineIf(doLogging.Enabled, String.Format(format, args), "server");
         }
 
         /// <summary>
@@ -91,6 +94,7 @@ namespace WellDunne.LanCaster
 
                     // Bind the data publisher socket:
                     //data.Rate = 20000L;
+                    data.HWM = 100000000;
                     // TODO: use epgm:// protocol for multicast efficiency when we build that support into libzmq.dll for Windows.
                     data.Bind("tcp://" + device + ":" + port.ToString());
 
@@ -192,6 +196,8 @@ namespace WellDunne.LanCaster
                                     trace("{0}: Unknown request", clientIdentity.ToString());
                                     break;
                             }
+
+                            request = null;
                             // TODO: detect more messages to receive
                         } while (false);
                     });
@@ -205,7 +211,7 @@ namespace WellDunne.LanCaster
                     // Begin the main polling and data delivery loop:
                     while (true)
                     {
-                        Trace.WriteLine(String.Format("POLL {0}", pollWait), "server");
+                        trace("POLL {0}", pollWait);
                         ctx.Poll(pollItems, pollWait);
 
                         // If any client state is dirty, OR all the NAKs amongst the joined clients:
@@ -213,7 +219,7 @@ namespace WellDunne.LanCaster
                         {
                             previousClientCount = clients.Count;
 
-                            Trace.WriteLine("Rebuilding NAK state", "server");
+                            trace("Rebuilding NAK state");
                             currentNAKs = new BitArray(numBitArrayBytes * 8, false);
                             foreach (var cli in clients.Values)
                             {
@@ -261,7 +267,7 @@ namespace WellDunne.LanCaster
                         if (currentNAKs[chunkIdx])
                         {
                             // Chunk index first:
-                            Trace.WriteLine(String.Format("SEND chunk: {0}", chunkIdx), "server");
+                            trace("SEND chunk: {0}", chunkIdx);
                             data.SendMore(this.subscription, Encoding.Unicode);
                             data.SendMore(BitConverter.GetBytes(chunkIdx));
 
@@ -281,14 +287,14 @@ namespace WellDunne.LanCaster
                                 // Send the exact-sized chunk:
                                 data.Send(buf);
                             }
-                            Trace.WriteLine(String.Format("COMPLETE chunk: {0}", chunkIdx), "server");
+                            trace("COMPLETE chunk: {0}", chunkIdx);
                         }
                     }
                 }
             }
             catch (System.Exception ex)
             {
-                Trace.WriteLine(ex.ToString(), "server");
+                trace(ex.ToString());
             }
         }
     }
