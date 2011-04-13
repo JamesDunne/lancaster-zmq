@@ -130,7 +130,8 @@ namespace WellDunne.LanCaster
                         trace("POLL");
                         Queue<byte[]> packet = data.RecvAll();
 
-                        Debug.Assert(Encoding.Unicode.GetString(packet.Dequeue()) == this.subscription);
+                        string sub = Encoding.Unicode.GetString(packet.Dequeue());
+                        Debug.Assert(sub == this.subscription);
                         int chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
                         // Already received this chunk?
                         if (!naks[chunkIdx])

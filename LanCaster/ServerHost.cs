@@ -223,7 +223,8 @@ namespace WellDunne.LanCaster
                     while (true)
                     {
                         trace("POLL {0}", pollWait);
-                        ctx.Poll(pollItems, pollWait);
+                        if (ctx.Poll(pollItems, pollWait) == 0)
+                            continue;
 
                         // If any client state is dirty, OR all the NAKs amongst the joined clients:
                         if (clients.Values.Any(cli => cli.IsDirty) || (clients.Count != previousClientCount))
