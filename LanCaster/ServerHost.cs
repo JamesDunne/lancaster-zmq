@@ -90,9 +90,6 @@ namespace WellDunne.LanCaster
                         Guid clientIdentity = new Guid(request.Dequeue());
                         Trace.WriteLine(clientIdentity.ToString(), "server");
 
-                        string resp = "OK";
-                        byte[] respBody = null;
-
                         string cmd = Encoding.Unicode.GetString(request.Dequeue());
 
                         // Process the client command:
@@ -175,7 +172,7 @@ namespace WellDunne.LanCaster
                     int chunkIdx = 0;
                     BitArray currentNAKs = new BitArray(numBitArrayBytes * 8, false);
                     byte[] buf = new byte[ChunkSize];
-                    int pollWait = 10;
+                    int pollWait = 100;
 
                     // Begin the main polling and data delivery loop:
                     while (true)
@@ -192,10 +189,11 @@ namespace WellDunne.LanCaster
                                 // Clean the dirty bit and OR the NAK bit array:
                                 (acc, cli) => acc.Or(cli.Clean().NAK)
                             );
+                            Trace.WriteLine("Completed rebuilding NAKs", "server");
                         }
                         else
                         {
-                            pollWait = 10000;
+                            pollWait = 100000;
                             continue;
                         }
 
@@ -206,6 +204,8 @@ namespace WellDunne.LanCaster
                         {
                             // Determine the next NAKed packet amongst all joined clients:
                             int lastIdx = chunkIdx;
+                            bool found = true;
+
                             while (!currentNAKs[chunkIdx])
                             {
                                 chunkIdx = (chunkIdx + 1) % numChunks;
@@ -214,10 +214,13 @@ namespace WellDunne.LanCaster
                                 if (lastIdx == chunkIdx)
                                 {
                                     // None are NAKed. Nothing to do.
-                                    pollWait = 10000;
-                                    continue;
+                                    pollWait = 100000;
+                                    found = false;
+                                    break;
                                 }
                             }
+
+                            if (!found) continue;
                         }
 
                         // Send the current chunk:
