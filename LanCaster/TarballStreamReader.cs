@@ -70,6 +70,10 @@ namespace WellDunne.LanCaster
             Trace.WriteLine(String.Format(format, args), "reader");
         }
 
+        public DirectoryInfo BaseDirectory { get { return _baseDir; } }
+        public List<TarballEntry> Files { get { return _files; } }
+
+
         #region Public events
 
         public delegate void NotifyFileOpenedDelegate(TarballEntry file, bool created);
@@ -244,13 +248,13 @@ namespace WellDunne.LanCaster
                     var file = new FileInfo(absPath);
                     if (file.Exists)
                     {
-                        this._currFile = file.OpenWrite();
+                        this._currFile = file.Open(FileMode.Open, FileAccess.Write, FileShare.Write);
                         this._currFile.Seek(0, SeekOrigin.Begin);
                         if (NotifyFileOpened != null) NotifyFileOpened(entry, false);
                     }
                     else
                     {
-                        this._currFile = file.Create();
+                        this._currFile = file.Open(FileMode.CreateNew, FileAccess.Write, FileShare.Write);
                         this._currFile.SetLength(this._currSize);
                         if (NotifyFileOpened != null) NotifyFileOpened(entry, true);
                     }

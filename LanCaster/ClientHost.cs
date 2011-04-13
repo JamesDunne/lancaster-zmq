@@ -20,13 +20,19 @@ namespace WellDunne.LanCaster
         private BooleanSwitch doLogging;
         private int chunkSize;
 
-        public ClientHost(string endpoint, string subscription, DirectoryInfo downloadDirectory)
+        public delegate BitArray GetClientNAKStateDelegate(int numChunks, TarballStreamReader tarball);
+
+        public ClientHost(string endpoint, string subscription, DirectoryInfo downloadDirectory, GetClientNAKStateDelegate getClientState)
         {
             this.endpoint = endpoint;
             this.subscription = subscription;
             this.downloadDirectory = downloadDirectory;
+            this.getClientState = getClientState;
             this.doLogging = new BooleanSwitch("doLogging", "Log client events", "0");
         }
+
+        private GetClientNAKStateDelegate getClientState;
+        public event Action<int> ChunkWritten;
 
         private void trace(string format, params object[] args)
         {
@@ -111,7 +117,7 @@ namespace WellDunne.LanCaster
                     ctl.SendMore(ctl.Identity);
                     ctl.SendMore("NAK", Encoding.Unicode);
 
-                    BitArray naks = new BitArray(numChunks, true);
+                    BitArray naks = getClientState(numChunks, tarball);
                     Console.WriteLine(String.Format("Chunks: {0}", numChunks), "client");
                     int numBytes = ((numChunks + 7) & ~7) >> 3;
                     byte[] nakBuf = new byte[numBytes];
@@ -161,6 +167,8 @@ namespace WellDunne.LanCaster
                         chunk = null;
 
                         naks[chunkIdx] = false;
+                        // Notify the host that a chunk was written:
+                        if (ChunkWritten != null) ChunkWritten(chunkIdx);
 
                         // Send a NAK packet to the control socket:
                         ctl.SendMore(ctl.Identity);

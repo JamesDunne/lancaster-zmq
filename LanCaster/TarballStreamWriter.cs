@@ -99,7 +99,7 @@ namespace WellDunne.LanCaster
             {
                 if (this._currFile == null)
                 {
-                    this._currFile = this._files[this._currIndex].OpenRead();
+                    this._currFile = this._files[this._currIndex].Open(FileMode.Open, FileAccess.Read, FileShare.Read);
                 }
 
                 this._currFile.Seek(this._currPos - this._positions[this._currIndex], SeekOrigin.Begin);

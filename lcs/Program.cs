@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.IO;
 using System.Threading;
 using ZMQ;
@@ -19,8 +20,11 @@ namespace WellDunne.LanCaster.Server
             string subscription = args[1];
             string path = args[2];
             
-            // Get all files recursively from the current directory:
-            var files = new DirectoryInfo(path).GetFiles("*.*", SearchOption.AllDirectories);
+            // Get all files recursively from the current directory, excluding any special '.lcc' download state folders/files:
+            var files =
+                from fi in new DirectoryInfo(path).GetFiles("*.*", SearchOption.AllDirectories)
+                where fi.Directory.Name != ".lcc"
+                select fi;
 
             using (var serverTarball = new TarballStreamWriter(files))
             {
