@@ -130,12 +130,16 @@ namespace WellDunne.LanCaster
                     trace("CTL RECV NAK");
                     ctl.RecvAll();
 
-                    bool done = false;
-
                     // Create a socket poller for the data socket:
-                    do
+                    while (true)
                     {
-                        trace("POLL");
+                        // No more NAKed packets?
+                        if (naks.Cast<bool>().Take(numChunks).All(b => !b))
+                        {
+                            Console.WriteLine("Completed");
+                            break;
+                        }
+
                         Queue<byte[]> packet = data.RecvAll();
 
                         string sub = Encoding.Unicode.GetString(packet.Dequeue());
@@ -183,16 +187,8 @@ namespace WellDunne.LanCaster
                         trace("CTL RECV NAK");
                         ctl.RecvAll();
 
-                        // No more NAKed packets?
-                        if (naks.Cast<bool>().All(b => !b))
-                        {
-                            Console.WriteLine("Completed");
-                            done = true;
-                        }
-
                         packet = null;
                     }
-                    while (!done);
 
                     Console.WriteLine("Exiting");
                     ctl.SendMore(ctl.Identity);

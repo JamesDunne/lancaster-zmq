@@ -93,7 +93,7 @@ namespace WellDunne.LanCaster.Client
 
             acks = new BitArray(ackBuf);
 
-            return acks.Not();
+            return (acks.Clone() as BitArray).Not();
         }
     }
 }

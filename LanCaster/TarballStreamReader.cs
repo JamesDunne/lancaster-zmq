@@ -248,13 +248,13 @@ namespace WellDunne.LanCaster
                     var file = new FileInfo(absPath);
                     if (file.Exists)
                     {
-                        this._currFile = file.Open(FileMode.Open, FileAccess.Write, FileShare.Write);
+                        this._currFile = file.Open(FileMode.Open, FileAccess.Write, FileShare.Read);
                         this._currFile.Seek(0, SeekOrigin.Begin);
                         if (NotifyFileOpened != null) NotifyFileOpened(entry, false);
                     }
                     else
                     {
-                        this._currFile = file.Open(FileMode.CreateNew, FileAccess.Write, FileShare.Write);
+                        this._currFile = file.Open(FileMode.CreateNew, FileAccess.Write, FileShare.Read);
                         this._currFile.SetLength(this._currSize);
                         if (NotifyFileOpened != null) NotifyFileOpened(entry, true);
                     }

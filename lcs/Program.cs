@@ -3,6 +3,7 @@ using System.Linq;
 using System.IO;
 using System.Threading;
 using ZMQ;
+using System.Configuration;
 
 namespace WellDunne.LanCaster.Server
 {
@@ -26,9 +27,14 @@ namespace WellDunne.LanCaster.Server
                 where fi.Directory.Name != ".lcc"
                 select fi;
 
+            int chunkSize = 64 * 1024;
+            string chunkSizeValue = ConfigurationManager.AppSettings["ChunkSize"];
+            if (chunkSizeValue != null)
+                Int32.TryParse(chunkSizeValue, out chunkSize);
+
             using (var serverTarball = new TarballStreamWriter(files))
             {
-                var server = new LanCaster.ServerHost(endpoint, subscription, serverTarball, path, 32 * 1024);
+                var server = new LanCaster.ServerHost(endpoint, subscription, serverTarball, path, chunkSize);
                 var serverThread = new Thread(server.Run);
 
                 using (Context ctx = new Context(1))
