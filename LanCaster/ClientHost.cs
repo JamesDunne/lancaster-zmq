@@ -61,6 +61,7 @@ namespace WellDunne.LanCaster
                     ctl.HWM = UInt64.Parse(hwmValue);
                 }
 
+                data.RcvBuf = ServerHost.ChunkSize * 20L;
                 data.Connect("tcp://" + addr + ":" + port.ToString());
                 data.Subscribe(subscription, Encoding.Unicode);
 
