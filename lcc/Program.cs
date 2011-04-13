@@ -1,10 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using System.IO;
 using System.Threading;
 using ZMQ;
-using System.IO;
 
 namespace WellDunne.LanCaster.Client
 {
@@ -12,29 +9,24 @@ namespace WellDunne.LanCaster.Client
     {
         static void Main(string[] args)
         {
-            // Get the current directory:
-            string path = Environment.CurrentDirectory;
-            // Get all files recursively from the current directory:
-            var files = new DirectoryInfo(path).GetFiles("*.*", SearchOption.AllDirectories);
-            var clientPath = new DirectoryInfo(Path.Combine(Path.GetTempPath(), "lcc"));
-            clientPath.Create();
-            
-            using (var serverTarball = new TarballStreamWriter(files))
+            if (args.Length != 3)
             {
-                var server = new LanCaster.ServerHost(serverTarball, path);
-                var serverThread = new Thread(server.Run);
+                Console.WriteLine("lcc <server endpoint> <subscription> <local download folder>");
+                return;
+            }
 
-                var client = new LanCaster.ClientHost(clientPath);
-                var clientThread = new Thread(client.Run);
+            string endpoint = args[0];
+            string subscription = args[1];
+            var clientPath = new DirectoryInfo(args[2]);
+            clientPath.Create();
 
-                using (Context ctx = new Context(1))
-                {
-                    serverThread.Start(ctx);
-                    clientThread.Start(ctx);
+            var client = new LanCaster.ClientHost(endpoint, subscription, clientPath);
+            var clientThread = new Thread(client.Run);
 
-                    serverThread.Join();
-                    clientThread.Join();
-                }
+            using (Context ctx = new Context(1))
+            {
+                clientThread.Start(ctx);
+                clientThread.Join();
             }
         }
     }
