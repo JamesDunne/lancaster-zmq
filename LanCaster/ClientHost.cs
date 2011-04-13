@@ -107,6 +107,7 @@ namespace WellDunne.LanCaster
                     naks.CopyTo(nakBuf, 0);
                     trace("CTL SEND NAK");
                     ctl.Send(nakBuf);
+                    nakBuf = null;
 
                     // Wait for the NAK reply:
                     trace("CTL RECV NAK");
@@ -115,11 +116,10 @@ namespace WellDunne.LanCaster
                     bool done = false;
 
                     // Create a socket poller for the data socket:
-                    PollItem[] pollItems = new PollItem[1];
-                    pollItems[0] = data.CreatePollItem(IOMultiPlex.POLLIN);
-                    pollItems[0].PollInHandler += new PollHandler((Socket sock, IOMultiPlex mp) =>
+                    do
                     {
-                        Queue<byte[]> packet = sock.RecvAll();
+                        trace("POLL");
+                        Queue<byte[]> packet = data.RecvAll();
 
                         Debug.Assert(Encoding.Unicode.GetString(packet.Dequeue()) == this.subscription);
                         int chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
@@ -142,9 +142,11 @@ namespace WellDunne.LanCaster
                         // Send a NAK packet to the control socket:
                         ctl.SendMore(ctl.Identity);
                         ctl.SendMore("NAK", Encoding.Unicode);
+                        nakBuf = new byte[numBytes];
                         naks.CopyTo(nakBuf, 0);
                         trace("CTL SEND NAK");
                         ctl.Send(nakBuf);
+                        nakBuf = null;
 
                         // Wait for the reply:
                         trace("CTL RECV NAK");
@@ -156,13 +158,8 @@ namespace WellDunne.LanCaster
                             Console.WriteLine("Completed");
                             done = true;
                         }
-                    });
 
-                    // Begin the polling loop:
-                    do
-                    {
-                        trace("POLL");
-                        ctx.Poll(pollItems, 100000);
+                        packet = null;
                     }
                     while (!done);
 
