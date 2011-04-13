@@ -43,6 +43,14 @@ namespace WellDunne.LanCaster.Client
                 clientThread.Start(ctx);
                 clientThread.Join();
             }
+
+            if (client.Completed)
+            {
+                // Clean up our download state on successful completion:
+                localStateStream.Close();
+                localStateFile.Delete();
+                lccDir.Delete(true);
+            }
         }
 
         private BitArray acks;

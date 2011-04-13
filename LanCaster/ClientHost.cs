@@ -28,6 +28,7 @@ namespace WellDunne.LanCaster
             this.subscription = subscription;
             this.downloadDirectory = downloadDirectory;
             this.getClientState = getClientState;
+            this.Completed = false;
             this.doLogging = new BooleanSwitch("doLogging", "Log client events", "0");
         }
 
@@ -38,6 +39,8 @@ namespace WellDunne.LanCaster
         {
             Trace.WriteLineIf(this.doLogging.Enabled, String.Format(format, args), "client");
         }
+
+        public bool Completed { get; private set; }
 
         /// <summary>
         /// Main thread to host the client process.
@@ -136,6 +139,7 @@ namespace WellDunne.LanCaster
                         // No more NAKed packets?
                         if (naks.Cast<bool>().Take(numChunks).All(b => !b))
                         {
+                            Completed = true;
                             Console.WriteLine("Completed");
                             break;
                         }
