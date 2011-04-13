@@ -18,3 +18,7 @@ Packaging of transfers into uniquely-identifiable objects, much like a torrent. 
 A daemon mode for the client to auto-accept transfers and download them to known locations - ideal for server farm deployments.
 Make clients REJOIN the server after server dies and comes back up again. Currently they are stuck on a blocking Recv call which will never be satisfied.
 Switch from TCP to EPGM protocol for multicast network efficiency. The Windows build of libzmq does not include EPGM support by default, and doing so does not look simple nor easy at the moment.
+
+TROUBLESHOOTING
+---------------
+You must install the Microsoft C++ 2010 (x86) redistributable (http://www.microsoft.com/downloads/en/details.aspx?FamilyID=a7b7a05e-6de6-4d3a-a423-37bf0912db84) in order for this tool to work. If you do not, you will get a message like System.DllNotFoundException: Unable to load DLL 'libzmq': The specified module could not be found. (Exception from HRESULT: 0x8007007E).
