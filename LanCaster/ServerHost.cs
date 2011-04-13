@@ -245,7 +245,7 @@ namespace WellDunne.LanCaster
                             continue;
                         }
 
-                        pollWait = 100;
+                        pollWait = 100000;
 
                         // If the current chunk is not NAKed, find the next one that is:
                         //if (!currentNAKs[chunkIdx])
