@@ -78,7 +78,9 @@ namespace WellDunne.LanCaster
 
                     // Connect to the control request socket:
                     ctl.Connect("tcp://" + addr + ":" + (port + 1).ToString());
-                    ctl.Identity = new byte[1] { (byte)'@' }.Concat(Guid.NewGuid().ToByteArray()).ToArray();
+
+                    Guid myIdentity = Guid.NewGuid();
+                    ctl.Identity = new byte[1] { (byte)'@' }.Concat(myIdentity.ToByteArray()).ToArray();
 
                     Thread.Sleep(500);
 
@@ -87,6 +89,7 @@ namespace WellDunne.LanCaster
                     ctl.Send("JOIN", Encoding.Unicode);
 
                     // Process the reply:
+                    trace("ctl.RecvAll for JOIN reply");
                     Queue<byte[]> reply = ctl.RecvAll();
 
                     string resp = Encoding.Unicode.GetString(reply.Dequeue());
@@ -123,37 +126,79 @@ namespace WellDunne.LanCaster
                         int numBytes = ((numChunks + 7) & ~7) >> 3;
                         byte[] nakBuf = new byte[numBytes];
                         naks.CopyTo(nakBuf, 0);
-                        trace("CTL SEND NAK");
+                        trace("CTL1 SEND NAK");
                         ctl.Send(nakBuf);
                         nakBuf = null;
 
                         // Wait for the NAK reply:
-                        trace("CTL RECV NAK");
-                        ctl.RecvAll();
+                        trace("CTL1 RECV NAK");
+                        ctl.Recv(Encoding.Unicode, 1000);
+                        trace("NAK1 ok");
 
-                        // Create a socket poller for the data socket:
-                        while (true)
+                        PollItem[] pollItems = new PollItem[1];
+                        pollItems[0] = data.CreatePollItem(IOMultiPlex.POLLIN);
+                        pollItems[0].PollInHandler += new PollHandler((Socket sock, IOMultiPlex mp) =>
                         {
-                            // No more NAKed packets?
-                            if (naks.Cast<bool>().Take(numChunks).All(b => !b))
-                            {
-                                Completed = true;
-                                break;
-                            }
-
-                            Queue<byte[]> packet = data.RecvAll();
+                            // Receive a message on the data socket:
+                            trace("data.RecvAll for poll");
+                            Queue<byte[]> packet = sock.RecvAll();
 
                             string sub = Encoding.Unicode.GetString(packet.Dequeue());
-                            Debug.Assert(sub == this.subscription);
-
                             string cmd = Encoding.Unicode.GetString(packet.Dequeue());
+                            trace("Server: '{0}'", cmd);
                             if (cmd == "PING")
                             {
                                 ctl.SendMore(ctl.Identity);
                                 ctl.Send("ALIVE", Encoding.Unicode);
-                                ctl.RecvAll();
-                                continue;
+                                
+                                // Wait for the response:
+                                trace("ctl.RecvAll for ALIVE reply");
+                                Queue<byte[]> pingReply = ctl.RecvAll();
+                                string pingCmd = Encoding.Unicode.GetString( pingReply.Dequeue() );
+                                trace("Server: '{0}'", pingCmd);
+                                if (pingCmd == "") return;
+
+                                // Is server confused?
+                                if (pingCmd == "WHOAREYOU")
+                                {
+                                    // Server must have restarted and is now confused.
+
+                                    // Send a JOIN request:
+                                    ctl.SendMore(ctl.Identity);
+                                    ctl.Send("JOIN", Encoding.Unicode);
+
+                                    // Process the reply:
+                                    trace("ctl.RecvAll for JOIN reply");
+                                    Queue<byte[]> reply2 = ctl.RecvAll();
+
+                                    string resp2 = Encoding.Unicode.GetString(reply2.Dequeue());
+
+                                    if (resp2 != "JOINED")
+                                    {
+                                        Console.WriteLine("Fail!");
+                                        return;
+                                    }
+
+                                    // TODO: verify the JOINED response is the same as what we originally got?
+
+                                    // Send our NAKs:
+                                    ctl.SendMore(ctl.Identity);
+                                    ctl.SendMore("NAK", Encoding.Unicode);
+                                    nakBuf = new byte[numBytes];
+                                    naks.CopyTo(nakBuf, 0);
+                                    trace("CTL2 SEND NAK");
+                                    ctl.Send(nakBuf);
+                                    nakBuf = null;
+
+                                    // Wait for the NAK reply:
+                                    trace("CTL2 RECV NAK");
+                                    ctl.Recv(Encoding.Unicode, 1000);
+                                    trace("NAK2 ok");
+
+                                    return;
+                                }
                             }
+
                             Debug.Assert(cmd == "DATA");
 
                             int chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
@@ -180,15 +225,45 @@ namespace WellDunne.LanCaster
                             ctl.SendMore("NAK", Encoding.Unicode);
                             nakBuf = new byte[numBytes];
                             naks.CopyTo(nakBuf, 0);
-                            trace("CTL SEND NAK");
+                            trace("CTL3 SEND NAK");
                             ctl.Send(nakBuf);
                             nakBuf = null;
 
                             // Wait for the reply:
-                            trace("CTL RECV NAK");
-                            ctl.RecvAll();
+                            trace("CTL3 RECV NAK");
+                            ctl.Recv(Encoding.Unicode, 1000);
+                            trace("NAK3 ok");
 
                             packet = null;
+                        });
+
+                        DateTimeOffset lastRecv = DateTimeOffset.UtcNow;
+
+                        // Create a socket poller for the data socket:
+                        while (true)
+                        {
+                            // No more NAKed packets?
+                            if (naks.Cast<bool>().Take(numChunks).All(b => !b))
+                            {
+                                Completed = true;
+                                break;
+                            }
+
+                            // Process incoming DATA subscription messages while they're available:
+                            bool gotData = false;
+                            trace("POLL");
+                            while (ctx.Poll(pollItems, 100000) == 1)
+                            {
+                                gotData = true;
+                                lastRecv = DateTimeOffset.UtcNow;
+                            }
+
+                            if (!gotData && (DateTimeOffset.UtcNow.Subtract(lastRecv).TotalSeconds >= 10))
+                            {
+                                // TODO: Hack the clrzmq2 Socket to allow closing and reopening the same Socket instance using
+                                // a new 0MQ socket.
+                                throw new System.Exception("BUG: No data received from server in 10 seconds. Need to close and reopen socket but CLRZMQ2 API doesn't allow this.");
+                            }
                         }
 
                         ctl.SendMore(ctl.Identity);

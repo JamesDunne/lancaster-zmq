@@ -24,6 +24,11 @@ namespace WellDunne.LanCaster
 
         public ServerHost(string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize)
         {
+            if (String.IsNullOrEmpty(endpoint)) throw new ArgumentNullException("endpoint");
+            if (String.IsNullOrEmpty(subscription)) throw new ArgumentNullException("subscription");
+            if (tarball == null) throw new ArgumentNullException("tarball");
+            if (String.IsNullOrEmpty(basePath)) throw new ArgumentNullException("basePath");
+
             this.endpoint = endpoint;
             this.subscription = subscription;
             this.tarball = tarball;
@@ -116,6 +121,7 @@ namespace WellDunne.LanCaster
                     // TODO: use epgm:// protocol for multicast efficiency when we build that support into libzmq.dll for Windows.
                     //data.Rate = 20000L;
                     data.SndBuf = (uint)chunkSize * 80UL;
+                    data.StringToIdentity(subscription, Encoding.Unicode);
                     data.Bind("tcp://" + device + ":" + port.ToString());
 
                     // Bind the control reply socket:
@@ -142,6 +148,7 @@ namespace WellDunne.LanCaster
                             string cmd = Encoding.Unicode.GetString(request.Dequeue());
 
                             // Process the client command:
+                            trace("{0}: Client sent '{1}'", clientIdentity.ToString(), cmd);
                             switch (cmd)
                             {
                                 case "JOIN":
@@ -225,6 +232,14 @@ namespace WellDunne.LanCaster
                                     break;
 
                                 case "ALIVE":
+                                    if (!clients.ContainsKey(clientIdentity))
+                                    {
+                                        trace("{0}: WHOAREYOU", clientIdentity.ToString());
+                                        byte[] sendIdentity = new byte[1] { (byte)'@' }.Concat(clientIdentity.ToByteArray()).ToArray();
+                                        sock.Send("WHOAREYOU", Encoding.Unicode);
+                                        break;
+                                    }
+
                                     sock.Send("", Encoding.Unicode);
 
                                     if (!clientsResponded.Contains(clientIdentity))
@@ -248,11 +263,23 @@ namespace WellDunne.LanCaster
                     int pollWait = 1000;
                     int previousClientCount = 0;
 
+                    DateTimeOffset lastPing = DateTimeOffset.UtcNow;
+
                     // Begin the main polling and data delivery loop:
                     while (true)
                     {
                         //trace("POLL {0}", pollWait);
                         while (ctx.Poll(pollItems, pollWait) == 1);
+
+                        if (DateTimeOffset.UtcNow.Subtract(lastPing).TotalMilliseconds >= 500d)
+                        {
+                            lastPing = DateTimeOffset.UtcNow;
+
+                            // Send a PING to all subscribers:
+                            trace("PING");
+                            data.SendMore(this.subscription, Encoding.Unicode);
+                            data.Send("PING", Encoding.Unicode);
+                        }
 
                         // Wait for all clients to send back a response:
                         if (clientsResponded.Count < clients.Count)
@@ -263,10 +290,6 @@ namespace WellDunne.LanCaster
                             KeyValuePair<Guid, DateTimeOffset> timedOutClient = clientTimeout.FirstOrDefault(dt => dt.Value < rightMeow);
                             if (timedOutClient.Key == Guid.Empty)
                             {
-                                // Send a PING to all subscribers:
-                                data.SendMore(this.subscription, Encoding.Unicode);
-                                data.Send("PING", Encoding.Unicode);
-
                                 continue;
                             }
                             

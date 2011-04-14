@@ -24,7 +24,7 @@ namespace WellDunne.LanCaster.Server
             List<DirectoryInfo> uploadDirs = new List<DirectoryInfo>();
             DirectoryInfo baseDir = null;
             string basePath = null;
-            bool recurseMode = false;
+            bool recurseMode = true;
             List<FileInfo> files = new List<FileInfo>();
             HashSet<string> ignoreFiles = new HashSet<string>();
             HashSet<string> ignoreExtensions = new HashSet<string>();
@@ -98,7 +98,8 @@ namespace WellDunne.LanCaster.Server
                             Console.Error.WriteLine("-b expects a path argument");
                             return;
                         }
-                        baseDir = new DirectoryInfo(argQueue.Dequeue());
+                        string tmp = argQueue.Dequeue();
+                        baseDir = new DirectoryInfo(tmp);
                         if (!baseDir.Exists)
                         {
                             Console.Error.WriteLine("Directory '{0}' does not exist!", baseDir.FullName);
@@ -170,7 +171,7 @@ namespace WellDunne.LanCaster.Server
                 }
             }
 
-            if (uploadDirs.Count == 0)
+            if ((uploadDirs.Count == 0) || String.IsNullOrEmpty(subscription))
             {
                 DisplayUsage();
                 return;
@@ -295,13 +296,13 @@ namespace WellDunne.LanCaster.Server
 
             string[][] prms = new string[][] {
 new[] { @"" },
+new[] { @"-s <identity>",       @"(REQUIRED) Set identity name; helps clients reconnect if the server dies or is aborted and restarted." },
 new[] { @"-e <endpoint>",       @"Listen for clients on the given 0MQ endpoint. '*' is all network interfaces, or provide a specific network interface's primary IPv4 address. Add a ':' and port number to specify a custom port number, default port is 12198. Default value is '*'." },
 new[] { @"-b <path>",           @"Set base path of upload (all directories must be beneath this folder)" },
 new[] { @"-i <path>",           @"Read the file at <path> for a listing of filenames, paths, and extensions (e.g. '*.txt') to ignore (applies to next -d options)" },
-new[] { @"-r",                  @"Set recursive mode (applies to following -d options)" },
-new[] { @"-R",                  @"Set nonrecursive mode (applies to following -d options)" },
-new[] { @"-d <path>",           @"Add files from directory to upload. Can specify multiple -d options." },
-new[] { @"-s <subscription>",   @"Set subscription name for subscribers to filter out transfers from other servers on the same endpoint" },
+new[] { @"-r",                  @"Set recursive mode (applies to following -d options). Default mode." },
+new[] { @"-R",                  @"Set nonrecursive mode (applies to following -d options)." },
+new[] { @"-d <path>",           @"(REQUIRED) Add files from directory to upload. Can specify multiple -d options." },
 new[] { @"-c <chunk size>",     @"Set the chunk size in bytes to use for dividing up the files into chunks. Larger values are better for faster networks. Recommend keeping it under 1048576. Default is 131072 (128 KB)" },
             };
 
