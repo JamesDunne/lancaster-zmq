@@ -19,14 +19,16 @@ namespace WellDunne.LanCaster
         private string endpoint;
         private BooleanSwitch doLogging;
         private int chunkSize;
+        private bool testMode;
 
         public delegate BitArray GetClientNAKStateDelegate(ClientHost host, int numChunks, int chunkSize, TarballStreamReader tarball);
 
-        public ClientHost(string endpoint, string subscription, DirectoryInfo downloadDirectory, GetClientNAKStateDelegate getClientState)
+        public ClientHost(string endpoint, string subscription, DirectoryInfo downloadDirectory, bool testMode, GetClientNAKStateDelegate getClientState)
         {
             this.endpoint = endpoint;
             this.subscription = subscription;
             this.downloadDirectory = downloadDirectory;
+            this.testMode = testMode;
             this.getClientState = getClientState;
             this.Completed = false;
             this.doLogging = new BooleanSwitch("doLogging", "Log client events", "0");
@@ -101,7 +103,7 @@ namespace WellDunne.LanCaster
 
                     if (resp != "JOINED")
                     {
-                        Console.WriteLine("Fail!");
+                        //Console.WriteLine("Fail!");
                         return;
                     }
 
@@ -194,7 +196,7 @@ namespace WellDunne.LanCaster
 
                                     if (resp2 != "JOINED")
                                     {
-                                        Console.WriteLine("Fail!");
+                                        //Console.WriteLine("Fail!");
                                         return;
                                     }
 
@@ -238,8 +240,11 @@ namespace WellDunne.LanCaster
                             trace("RECV {0}", chunkIdx);
 
                             byte[] chunk = packet.Dequeue();
-                            tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
-                            tarball.Write(chunk, 0, chunk.Length);
+                            if (!testMode)
+                            {
+                                tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
+                                tarball.Write(chunk, 0, chunk.Length);
+                            }
                             chunk = null;
 
                             naks[chunkIdx] = false;
@@ -293,7 +298,7 @@ namespace WellDunne.LanCaster
                             // If we disposed of the previous control socket, create a new one:
                             if (ctl == null)
                             {
-                                Console.WriteLine("Creating new socket");
+                                trace("Creating new CONTROL socket");
                                 // Set up new socket:
                                 ctl = ctx.Socket(SocketType.REQ);
 

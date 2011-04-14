@@ -19,6 +19,7 @@ namespace WellDunne.LanCaster.Client
         private FileInfo localStateFile;
         private FileStream localStateStream;
         private DirectoryInfo downloadDirectory;
+        private bool testMode;
 
         void Run(string[] args)
         {
@@ -59,6 +60,9 @@ namespace WellDunne.LanCaster.Client
                             }
                             subscription = argQueue.Dequeue();
                             break;
+                        case "-t":
+                            testMode = true;
+                            break;
                         case "-?":
                             DisplayUsage();
                             return;
@@ -80,7 +84,7 @@ namespace WellDunne.LanCaster.Client
                 localStateFile = new FileInfo(Path.Combine(lccDir.FullName, ".chunks"));
 
                 // Create the client:
-                var client = new LanCaster.ClientHost(endpoint, subscription, downloadDirectory, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState));
+                var client = new LanCaster.ClientHost(endpoint, subscription, downloadDirectory, testMode, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState));
                 client.ChunkWritten += new Action<int>(ChunkWritten);
 
                 // Start the client thread and wait for it to complete:
@@ -249,6 +253,7 @@ new[] { @"" },
 new[] { @"-e <endpoint>",       @"Connect to a server at the given address. Optionally add a ':' and port number to specify a custom port number, default port is 12198." },
 new[] { @"-d <path>",           @"Download files to local directory (will be created if it doesn't exist)." },
 new[] { @"-s <subscription>",   @"Set subscription name to filter out transfers from other servers on the same endpoint. Default is empty." },
+new[] { @"-t",                  @"Test mode - don't write to filesystem, just act as a dummy client." },
             };
 
             // Displays the error text wrapped to the console's width:
