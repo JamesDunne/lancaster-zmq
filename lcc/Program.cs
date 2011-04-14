@@ -24,25 +24,67 @@ namespace WellDunne.LanCaster.Client
         {
             try
             {
-                if (args.Length != 3)
+                string endpoint = "*";
+                string subscription = String.Empty;
+
+                Queue<string> argQueue = new Queue<string>(args);
+                while (argQueue.Count > 0)
                 {
-                    Console.WriteLine("lcc <server endpoint> <subscription> <local download folder>");
+                    string arg = argQueue.Dequeue();
+
+                    switch (arg)
+                    {
+                        case "-e":
+                            if (argQueue.Count == 0)
+                            {
+                                Console.Error.WriteLine("-e expects an endpoint argument");
+                                return;
+                            }
+                            endpoint = argQueue.Dequeue();
+                            break;
+                        case "-d":
+                            if (argQueue.Count == 0)
+                            {
+                                Console.Error.WriteLine("-d expects a path argument");
+                                return;
+                            }
+
+                            downloadDirectory = new DirectoryInfo(argQueue.Dequeue());
+                            break;
+                        case "-s":
+                            if (argQueue.Count == 0)
+                            {
+                                Console.Error.WriteLine("-s expects a subscription name argument");
+                                return;
+                            }
+                            subscription = argQueue.Dequeue();
+                            break;
+                        case "-?":
+                            DisplayUsage();
+                            return;
+                        default:
+                            break;
+                    }
+                }
+
+                if ((endpoint == null) || (downloadDirectory == null))
+                {
+                    DisplayUsage();
                     return;
                 }
 
-                string endpoint = args[0];
-                string subscription = args[1];
-                downloadDirectory = new DirectoryInfo(args[2]);
                 downloadDirectory.Create();
 
                 // Create a local state directory:
                 lccDir = downloadDirectory.CreateSubdirectory(".lcc");
                 localStateFile = new FileInfo(Path.Combine(lccDir.FullName, ".chunks"));
 
+                // Create the client:
                 var client = new LanCaster.ClientHost(endpoint, subscription, downloadDirectory, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState));
                 client.ChunkWritten += new Action<int>(ChunkWritten);
-                var clientThread = new Thread(client.Run);
 
+                // Start the client thread and wait for it to complete:
+                var clientThread = new Thread(client.Run);
                 using (Context ctx = new Context(1))
                 {
                     clientThread.Start(ctx);
@@ -58,6 +100,11 @@ namespace WellDunne.LanCaster.Client
                     localStateFile.Delete();
                     lccDir.Delete(true);
                 }
+                else
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("Failed completion.");
+                }
             }
             catch (System.Exception ex)
             {
@@ -70,6 +117,7 @@ namespace WellDunne.LanCaster.Client
         private byte[] ackBuf;
 
         private int chunksWritten = 0;
+        private bool wroteLegend = false;
 
         void ChunkWritten(int chunkIdx)
         {
@@ -93,6 +141,14 @@ namespace WellDunne.LanCaster.Client
                 return;
             }
             chunksWritten = (chunksWritten + 1) % blocks;
+
+            if (!wroteLegend)
+            {
+                Console.WriteLine();
+                Console.WriteLine(" '-' no chunks    '*' some chunks    '#' all chunks    'O' current zone");
+                Console.WriteLine();
+                wroteLegend = true;
+            }
 
             string backup = new string('\b', Console.WindowWidth);
             Console.Write(backup);
@@ -162,6 +218,60 @@ namespace WellDunne.LanCaster.Client
             acks = new BitArray(ackBuf);
 
             return (acks.Clone() as BitArray).Not();
+        }
+
+        private static void DisplayHeader()
+        {
+            // Displays the error text wrapped to the console's width:
+            Console.Error.WriteLine(
+                String.Join(
+                    Environment.NewLine,
+                    (
+                        from line in new string[] {
+@"lcc.exe <options> ...",
+@"Version " + System.Reflection.Assembly.GetEntryAssembly().GetName().Version.ToString(4),
+@"(C)opyright 2011 James S. Dunne <lancaster@bittwiddlers.org>",
+                        }
+                        // Wrap the lines to the window width:
+                        from wrappedLine in line.WordWrap(Console.WindowWidth - 1)
+                        select wrappedLine
+                    ).ToArray()
+                )
+            );
+        }
+
+        private static void DisplayUsage()
+        {
+            DisplayHeader();
+
+            string[][] prms = new string[][] {
+new[] { @"" },
+new[] { @"-e <endpoint>",       @"Connect to a server at the given address. Optionally add a ':' and port number to specify a custom port number, default port is 12198." },
+new[] { @"-d <path>",           @"Download files to local directory (will be created if it doesn't exist)." },
+new[] { @"-s <subscription>",   @"Set subscription name to filter out transfers from other servers on the same endpoint. Default is empty." },
+            };
+
+            // Displays the error text wrapped to the console's width:
+            int maxprmLength = prms.Where(prm => prm.Length == 2).Max(prm => prm[0].Length);
+
+            Console.Error.WriteLine(
+                String.Join(
+                    Environment.NewLine,
+                    (
+                        from cols in prms
+                        let wrap1 = (cols.Length == 1) ? null
+                            : cols[1].WordWrap(Console.WindowWidth - maxprmLength - 2)
+                        let tmp = (cols.Length == 1) ? cols[0].WordWrap(Console.WindowWidth - 1)
+                            : Enumerable.Repeat(cols[0] + new string(' ', maxprmLength - cols[0].Length + 1) + wrap1.First(), 1)
+                              .Concat(
+                                from line in wrap1.Skip(1)
+                                select new string(' ', maxprmLength + 1) + line
+                              )
+                        from wrappedLine in tmp
+                        select wrappedLine
+                    ).ToArray()
+                )
+            );
         }
     }
 }
