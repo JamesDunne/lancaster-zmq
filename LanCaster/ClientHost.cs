@@ -147,6 +147,8 @@ namespace WellDunne.LanCaster
                         }
                         trace("NAKS1 ok");
 
+                        int ackCount = naks.Cast<bool>().Count(b => !b);
+
                         // Poll for incoming messages on the data SUB socket:
                         PollItem[] pollItems = new PollItem[1];
                         pollItems[0] = data.CreatePollItem(IOMultiPlex.POLLIN);
@@ -248,44 +250,20 @@ namespace WellDunne.LanCaster
                             chunk = null;
 
                             naks[chunkIdx] = false;
+                            ++ackCount;
                             // Notify the host that a chunk was written:
                             if (ChunkWritten != null) ChunkWritten(chunkIdx);
 
-#if true
                             // Send a ACK packet to the control socket:
                             ctl.SendMore(ctl.Identity);
                             ctl.SendMore("ACK", Encoding.Unicode);
                             ctl.Send(BitConverter.GetBytes(chunkIdx));
-                            if (ctl.RecvAll(10000) == null)
+                            if (ctl.RecvAll() == null)
                             {
                                 trace("Timed out waiting for server reply to ACK");
                                 ctl.Dispose();
                                 ctl = null;
                             }
-#else
-                            // Send a NAK packet to the control socket:
-                            ctl.SendMore(ctl.Identity);
-                            ctl.SendMore("NAK", Encoding.Unicode);
-                            nakBuf = new byte[numBytes];
-                            naks.CopyTo(nakBuf, 0);
-                            trace("CTL3 SEND NAK");
-                            ctl.Send(nakBuf);
-                            nakBuf = null;
-
-                            // Wait for the reply:
-                            trace("CTL3 RECV NAK");
-                            Queue<byte[]> nak3Reply = ctl.RecvAll(10000);
-                            if (nak3Reply == null)
-                            {
-                                trace("Timed out waiting for server reply to ALIVE");
-                                ctl.Dispose();
-                                ctl = null;
-                            }
-                            else
-                            {
-                                trace("NAK3 ok");
-                            }
-#endif
 
                             packet = null;
                         });
@@ -307,12 +285,20 @@ namespace WellDunne.LanCaster
                                 ctl.Identity = new byte[1] { (byte)'@' }.Concat(myIdentity.ToByteArray()).ToArray();
                             }
 
+#if true
+                            if (ackCount >= numChunks)
+                            {
+                                Completed = true;
+                                break;
+                            }
+#else
                             // No more NAKed packets?
                             if (naks.Cast<bool>().Take(numChunks).All(b => !b))
                             {
                                 Completed = true;
                                 break;
                             }
+#endif
 
                             // Process incoming DATA subscription messages while they're available:
                             bool gotData = false;

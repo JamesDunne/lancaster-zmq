@@ -1,4 +1,8 @@
+LanCaster-Release/
+tmpdl*/
 bin/
 obj/
 *.user
 *.suo
+*.psess
+*.vsp

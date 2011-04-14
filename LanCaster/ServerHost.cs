@@ -140,142 +140,140 @@ namespace WellDunne.LanCaster
                     // Wait for the sockets to bind:
                     Thread.Sleep(500);
 
-                    HashSet<Guid> awaitingClientACKs = new HashSet<Guid>();
+                    Dictionary<int, HashSet<Guid>> awaitingClientACKs = new Dictionary<int, HashSet<Guid>>();
 
                     // Create a poller on the control socket to handle client requests:
                     PollItem[] pollItems = new PollItem[1];
                     pollItems[0] = ctl.CreatePollItem(IOMultiPlex.POLLIN);
                     pollItems[0].PollInHandler += new PollHandler((Socket sock, IOMultiPlex mp) =>
                     {
-                        //uint ev = 0;
-                        do
+                        Queue<byte[]> request = sock.RecvAll();
+
+                        Guid clientIdentity = new Guid(request.Dequeue().Skip(1).ToArray());
+                        clientTimeout[clientIdentity] = DateTimeOffset.UtcNow.AddSeconds(3);
+
+                        string cmd = Encoding.Unicode.GetString(request.Dequeue());
+
+                        // Process the client command:
+                        trace("{0}: Client sent '{1}'", clientIdentity.ToString(), cmd);
+                        switch (cmd)
                         {
-                            Queue<byte[]> request = sock.RecvAll();
-
-                            Guid clientIdentity = new Guid(request.Dequeue().Skip(1).ToArray());
-                            clientTimeout[clientIdentity] = DateTimeOffset.UtcNow.AddSeconds(3);
-
-                            string cmd = Encoding.Unicode.GetString(request.Dequeue());
-
-                            // Process the client command:
-                            trace("{0}: Client sent '{1}'", clientIdentity.ToString(), cmd);
-                            switch (cmd)
-                            {
-                                case "JOIN":
-                                    if (clients.ContainsKey(clientIdentity))
-                                    {
-                                        trace("{0}: Client already joined", clientIdentity.ToString());
-                                        sock.Send("ALREADY_JOINED", Encoding.Unicode);
-                                        break;
-                                    }
-
-                                    clients.Add(clientIdentity, new ClientState(clientIdentity, new BitArray(numBitArrayBytes << 3)));
-
-                                    // TODO: send out the tarball descriptor:
-                                    sock.SendMore("JOINED", Encoding.Unicode);
-
-                                    ReadOnlyCollection<FileInfo> files = tarball.Files;
-
-                                    sock.SendMore(BitConverter.GetBytes(numChunks));
-                                    sock.SendMore(BitConverter.GetBytes(chunkSize));
-                                    sock.SendMore(BitConverter.GetBytes(tarball.Files.Count));
-
-                                    foreach (var fi in files)
-                                    {
-                                        string fiName = fi.FullName.Substring(basePath.Length);
-                                        sock.SendMore(fiName, Encoding.Unicode);
-                                        sock.SendMore(BitConverter.GetBytes(fi.Length));
-                                        sock.SendMore(new byte[16]);
-                                    }
-
-                                    sock.Send("", Encoding.Unicode);
-                                    trace("{0}: Sent JOINED response", clientIdentity.ToString());
-                                    if (ClientJoined != null) ClientJoined(this, clientIdentity);
+                            case "JOIN":
+                                if (clients.ContainsKey(clientIdentity))
+                                {
+                                    trace("{0}: Client already joined", clientIdentity.ToString());
+                                    sock.Send("ALREADY_JOINED", Encoding.Unicode);
                                     break;
+                                }
 
-                                case "ACK":
-                                    if (!clients.ContainsKey(clientIdentity))
-                                    {
-                                        trace("{0}: Client not joined", clientIdentity.ToString());
-                                        sock.Send("NOTJOINED", Encoding.Unicode);
-                                        clientTimeout.Remove(clientIdentity);
-                                        break;
-                                    }
+                                clients.Add(clientIdentity, new ClientState(clientIdentity, new BitArray(numBitArrayBytes << 3)));
 
-                                    trace("{0}: ACK received", clientIdentity.ToString());
+                                // TODO: send out the tarball descriptor:
+                                sock.SendMore("JOINED", Encoding.Unicode);
 
-                                    int nakChunkIdx = BitConverter.ToInt32(request.Dequeue(), 0);
-                                    clients[clientIdentity].NAK[nakChunkIdx] = false;
-                                    sock.Send("", Encoding.Unicode);
+                                ReadOnlyCollection<FileInfo> files = tarball.Files;
 
-                                    awaitingClientACKs.Remove(clientIdentity);
-                                    break;
+                                sock.SendMore(BitConverter.GetBytes(numChunks));
+                                sock.SendMore(BitConverter.GetBytes(chunkSize));
+                                sock.SendMore(BitConverter.GetBytes(tarball.Files.Count));
 
-                                case "NAKS":
-                                    // Receive the client's current NAK:
-                                    if (!clients.ContainsKey(clientIdentity))
-                                    {
-                                        trace("{0}: Client not joined", clientIdentity.ToString());
-                                        sock.Send("NOTJOINED", Encoding.Unicode);
-                                        clientTimeout.Remove(clientIdentity);
-                                        break;
-                                    }
+                                foreach (var fi in files)
+                                {
+                                    string fiName = fi.FullName.Substring(basePath.Length);
+                                    sock.SendMore(fiName, Encoding.Unicode);
+                                    sock.SendMore(BitConverter.GetBytes(fi.Length));
+                                    sock.SendMore(new byte[16]);
+                                }
 
-                                    byte[] tmp = request.Dequeue();
-                                    if (tmp.Length != numBitArrayBytes)
-                                    {
-                                        trace("{0}: Bad NAKs", clientIdentity.ToString());
-                                        sock.Send("BADNAKS", Encoding.Unicode);
-                                        clientTimeout.Remove(clientIdentity);
-                                        break;
-                                    }
+                                sock.Send("", Encoding.Unicode);
+                                trace("{0}: Sent JOINED response", clientIdentity.ToString());
+                                if (ClientJoined != null) ClientJoined(this, clientIdentity);
+                                break;
 
-                                    clients[clientIdentity].NAK = new BitArray(tmp);
-                                    trace("{0}: NAKs received", clientIdentity.ToString());
-                                    sock.Send("", Encoding.Unicode);
-                                    break;
-
-                                case "LEAVE":
-                                    if (!clients.ContainsKey(clientIdentity))
-                                    {
-                                        trace("{0}: Client already left!", clientIdentity.ToString());
-                                        sock.Send("ALREADY_LEFT", Encoding.Unicode);
-                                        clientTimeout.Remove(clientIdentity);
-                                        break;
-                                    }
-
-                                    // Remove the client's state record:
-                                    clients.Remove(clientIdentity);
-                                    sock.Send("LEFT", Encoding.Unicode);
-                                    trace("{0}: Client left", clientIdentity.ToString());
-
-                                    awaitingClientACKs.Remove(clientIdentity);
+                            case "ACK":
+                                if (!clients.ContainsKey(clientIdentity))
+                                {
+                                    trace("{0}: Client not joined", clientIdentity.ToString());
+                                    sock.Send("NOTJOINED", Encoding.Unicode);
                                     clientTimeout.Remove(clientIdentity);
-                                    if (ClientLeft != null) ClientLeft(this, clientIdentity, ClientLeaveReason.Left);
                                     break;
+                                }
 
-                                case "ALIVE":
-                                    if (!clients.ContainsKey(clientIdentity))
-                                    {
-                                        trace("{0}: WHOAREYOU", clientIdentity.ToString());
-                                        byte[] sendIdentity = new byte[1] { (byte)'@' }.Concat(clientIdentity.ToByteArray()).ToArray();
-                                        sock.Send("WHOAREYOU", Encoding.Unicode);
-                                        break;
-                                    }
+                                trace("{0}: ACK received", clientIdentity.ToString());
 
-                                    sock.Send("", Encoding.Unicode);
+                                int nakChunkIdx = BitConverter.ToInt32(request.Dequeue(), 0);
+                                clients[clientIdentity].NAK[nakChunkIdx] = false;
+                                sock.Send("", Encoding.Unicode);
+
+                                awaitingClientACKs[nakChunkIdx].Remove(clientIdentity);
+                                break;
+
+                            case "NAKS":
+                                // Receive the client's current NAK:
+                                if (!clients.ContainsKey(clientIdentity))
+                                {
+                                    trace("{0}: Client not joined", clientIdentity.ToString());
+                                    sock.Send("NOTJOINED", Encoding.Unicode);
+                                    clientTimeout.Remove(clientIdentity);
                                     break;
+                                }
 
-                                default:
-                                    // Unknown command.
-                                    sock.Send("UNKNOWN", Encoding.Unicode);
-                                    trace("{0}: Unknown request", clientIdentity.ToString());
+                                byte[] tmp = request.Dequeue();
+                                if (tmp.Length != numBitArrayBytes)
+                                {
+                                    trace("{0}: Bad NAKs", clientIdentity.ToString());
+                                    sock.Send("BADNAKS", Encoding.Unicode);
+                                    clientTimeout.Remove(clientIdentity);
                                     break;
-                            }
+                                }
 
-                            request = null;
-                            // TODO: detect more messages to receive
-                        } while (false);
+                                clients[clientIdentity].NAK = new BitArray(tmp);
+                                trace("{0}: NAKs received", clientIdentity.ToString());
+                                sock.Send("", Encoding.Unicode);
+                                break;
+
+                            case "LEAVE":
+                                if (!clients.ContainsKey(clientIdentity))
+                                {
+                                    trace("{0}: Client already left!", clientIdentity.ToString());
+                                    sock.Send("ALREADY_LEFT", Encoding.Unicode);
+                                    clientTimeout.Remove(clientIdentity);
+                                    break;
+                                }
+
+                                // Remove the client's state record:
+                                clients.Remove(clientIdentity);
+                                sock.Send("LEFT", Encoding.Unicode);
+                                trace("{0}: Client left", clientIdentity.ToString());
+
+                                foreach (HashSet<Guid> awaiter in awaitingClientACKs.Values)
+                                    awaiter.Remove(clientIdentity);
+                                clientTimeout.Remove(clientIdentity);
+                                if (ClientLeft != null) ClientLeft(this, clientIdentity, ClientLeaveReason.Left);
+                                break;
+
+                            case "ALIVE":
+                                if (!clients.ContainsKey(clientIdentity))
+                                {
+                                    trace("{0}: WHOAREYOU", clientIdentity.ToString());
+                                    byte[] sendIdentity = new byte[1] { (byte)'@' }.Concat(clientIdentity.ToByteArray()).ToArray();
+                                    sock.Send("WHOAREYOU", Encoding.Unicode);
+                                    break;
+                                }
+
+                                sock.Send("", Encoding.Unicode);
+                                break;
+
+                            default:
+                                // Unknown command.
+                                sock.Send("UNKNOWN", Encoding.Unicode);
+                                trace("{0}: Unknown request", clientIdentity.ToString());
+                                break;
+                        }
+
+                        request = null;
+                        // TODO: detect more messages to receive
+
                     });
 
                     int? chunkIdx = null;
@@ -306,10 +304,10 @@ namespace WellDunne.LanCaster
                             data.Send("PING", Encoding.Unicode);
                         }
 
-                        // Wait for all clients to send back a response:
-                        if (awaitingClientACKs.Count > 0)
+                        // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least 10 chunks:
+                        if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= 50)
                         {
-                            trace("Still awaiting ACKs, {0}", awaitingClientACKs.Count);
+                            trace("Still awaiting ACKs on {0} packets", awaitingClientACKs.Count);
                             DateTimeOffset rightMeow = DateTimeOffset.UtcNow;
 
                             // Anyone timed out yet?
@@ -322,6 +320,8 @@ namespace WellDunne.LanCaster
                             // Yes, remove that client:
                             clientTimeout.Remove(timedOutClient.Key);
                             clients.Remove(timedOutClient.Key);
+                            foreach (HashSet<Guid> awaiter in awaitingClientACKs.Values)
+                                awaiter.Remove(timedOutClient.Key);
                             if (ClientLeft != null) ClientLeft(this, timedOutClient.Key, ClientLeaveReason.TimedOut);
                         }
 
@@ -339,9 +339,9 @@ namespace WellDunne.LanCaster
                         chunkIdx = (
                             from cli in clientOrder
                             // Find the first NAK for the client with the least amount of NAKs to receive:
-                            let ch = cli.client.NAK.Cast<bool>().Select((b, i) => new { b, i }).FirstOrDefault(x => x.b)
+                            let ch = cli.client.NAK.Cast<bool>().Select((b, i) => new { b, i }).FirstOrDefault(x => x.b && ((!awaitingClientACKs.ContainsKey(x.i)) || (awaitingClientACKs[x.i].Count == 0)))
                             where ch != null
-                            select (int?) ch.i
+                            select (int?)ch.i
                         ).FirstOrDefault();
 #else
                         var chunkQuery = (
@@ -367,7 +367,7 @@ namespace WellDunne.LanCaster
 #endif
 
                         // Send the current chunk:
-                        if (chunkIdx.HasValue)
+                        if (chunkIdx.HasValue && (!awaitingClientACKs.ContainsKey(chunkIdx.Value) || (awaitingClientACKs[chunkIdx.Value].Count == 0)))
                         {
                             // Chunk index first:
                             trace("SEND chunk: {0}", chunkIdx.Value);
@@ -396,11 +396,11 @@ namespace WellDunne.LanCaster
                             trace("COMPLETE chunk: {0}", chunkIdx.Value);
 
                             // Wait for an ACK from all the clients who have this chunk currently NAKed:
-                            awaitingClientACKs.Clear();
+                            awaitingClientACKs[chunkIdx.Value] = new HashSet<Guid>();
                             foreach (var cli in clients.Values.Where(x => x.NAK[chunkIdx.Value]))
                             {
-                                trace("Awaiting ACK from {0}", cli.Identity.ToString());
-                                awaitingClientACKs.Add(cli.Identity);
+                                trace("Awaiting ACK from {0} for chunk {1}", cli.Identity.ToString(), chunkIdx.Value);
+                                awaitingClientACKs[chunkIdx.Value].Add(cli.Identity);
                             }
                         }
                     }
