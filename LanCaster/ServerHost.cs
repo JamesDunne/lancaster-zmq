@@ -2,13 +2,13 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Configuration;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using ZMQ;
-using System.Configuration;
 
 namespace WellDunne.LanCaster
 {
@@ -31,11 +31,19 @@ namespace WellDunne.LanCaster
             this.chunkSize = chunkSize;
             this.numChunks = (int)(tarball.Length / chunkSize) + ((tarball.Length % chunkSize > 0) ? 1 : 0);
             this.numBitArrayBytes = ((numChunks + 7) & ~7) >> 3;
+            this.currentNAKs = new BitArray(numBitArrayBytes * 8, false);
 
             if (this.numChunks == 0) throw new System.Exception();
 
             this.doLogging = new BooleanSwitch("doLogging", "Log server events", "0");
         }
+
+        public int NumChunks { get { return this.numChunks; } }
+        public int ChunkSize { get { return this.chunkSize; } }
+
+        public BitArray NAKs { get { return this.currentNAKs; } }
+
+        public event Action<ServerHost, int> ChunkSent;
 
         private sealed class ClientState
         {
@@ -57,6 +65,7 @@ namespace WellDunne.LanCaster
             }
         }
 
+        private BitArray currentNAKs;
         private int numChunks;
         private int numBitArrayBytes;
         private Dictionary<Guid, ClientState> clients = new Dictionary<Guid, ClientState>();
@@ -98,7 +107,6 @@ namespace WellDunne.LanCaster
                     string hwmValue = ConfigurationManager.AppSettings["HWM"];
                     if (hwmValue != null)
                     {
-                        Console.WriteLine("Setting HWM to {0} messages", hwmValue);
                         data.HWM = UInt64.Parse(hwmValue);
                         ctl.HWM = UInt64.Parse(hwmValue);
                     }
@@ -160,21 +168,21 @@ namespace WellDunne.LanCaster
                                         string fiName = fi.FullName.Substring(basePath.Length);
                                         sock.SendMore(fiName, Encoding.Unicode);
                                         sock.SendMore(BitConverter.GetBytes(fi.Length));
-                                        Console.WriteLine("{0,15} {1}", fi.Length, fiName);
                                         sock.SendMore(new byte[16]);
                                     }
-                                    Console.WriteLine("Chunks: {0}", numChunks);
 
                                     sock.Send("", Encoding.Unicode);
                                     trace("{0}: Sent JOINED response", clientIdentity.ToString());
                                     break;
 
                                 case "NAK":
-                                    // Recieve the client's current NAK:
+                                    // Receive the client's current NAK:
                                     if (!clients.ContainsKey(clientIdentity))
                                     {
                                         trace("{0}: Client not joined", clientIdentity.ToString());
                                         sock.Send("NOTJOINED", Encoding.Unicode);
+                                        clientsResponded.Remove(clientIdentity);
+                                        clientTimeout.Remove(clientIdentity);
                                         break;
                                     }
 
@@ -183,6 +191,8 @@ namespace WellDunne.LanCaster
                                     {
                                         trace("{0}: Bad NAKs", clientIdentity.ToString());
                                         sock.Send("BADNAKS", Encoding.Unicode);
+                                        clientsResponded.Remove(clientIdentity);
+                                        clientTimeout.Remove(clientIdentity);
                                         break;
                                     }
 
@@ -199,6 +209,8 @@ namespace WellDunne.LanCaster
                                     {
                                         trace("{0}: Client already left!", clientIdentity.ToString());
                                         sock.Send("ALREADY_LEFT", Encoding.Unicode);
+                                        clientsResponded.Remove(clientIdentity);
+                                        clientTimeout.Remove(clientIdentity);
                                         break;
                                     }
 
@@ -232,7 +244,6 @@ namespace WellDunne.LanCaster
                     });
 
                     int chunkIdx = 0;
-                    BitArray currentNAKs = new BitArray(numBitArrayBytes * 8, false);
                     byte[] buf = new byte[chunkSize];
                     int pollWait = 1000;
                     int previousClientCount = 0;
@@ -241,7 +252,7 @@ namespace WellDunne.LanCaster
                     while (true)
                     {
                         //trace("POLL {0}", pollWait);
-                        ctx.Poll(pollItems, pollWait);
+                        while (ctx.Poll(pollItems, pollWait) == 1);
 
                         // Wait for all clients to send back a response:
                         if (clientsResponded.Count < clients.Count)
@@ -272,11 +283,12 @@ namespace WellDunne.LanCaster
                             previousClientCount = clients.Count;
 
                             trace("Rebuilding NAK state");
-                            currentNAKs = new BitArray(numBitArrayBytes * 8, false);
+                            BitArray tmpNAKs = new BitArray(numBitArrayBytes * 8, false);
                             foreach (var cli in clients.Values)
                             {
-                                currentNAKs = currentNAKs.Or(cli.Clean().NAK);
+                                tmpNAKs = tmpNAKs.Or(cli.Clean().NAK);
                             }
+                            currentNAKs = tmpNAKs;
                         }
                         else
                         {
@@ -340,6 +352,8 @@ namespace WellDunne.LanCaster
                                 // Send the exact-sized chunk:
                                 data.Send(buf);
                             }
+
+                            if (ChunkSent != null) ChunkSent(this, chunkIdx);
                             trace("COMPLETE chunk: {0}", chunkIdx);
                         }
                     }
@@ -347,7 +361,7 @@ namespace WellDunne.LanCaster
             }
             catch (System.Exception ex)
             {
-                trace(ex.ToString());
+                Console.Error.WriteLine(ex.ToString());
             }
         }
     }
