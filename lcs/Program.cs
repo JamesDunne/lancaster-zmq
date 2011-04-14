@@ -131,7 +131,7 @@ namespace WellDunne.LanCaster.Server
                             ).Distinct(StringComparer.OrdinalIgnoreCase),
                             StringComparer.OrdinalIgnoreCase
                         );
-                        
+
                         ignoreFiles = new HashSet<string>(
                             lines.Except(ignoreExtensions).Distinct(StringComparer.OrdinalIgnoreCase),
                             StringComparer.OrdinalIgnoreCase
@@ -247,7 +247,13 @@ namespace WellDunne.LanCaster.Server
                 Console.Write('O');
                 for (int i = currChunkBlock + 1; i < (Console.WindowWidth - 3); ++i) Console.Write('-');
 #else
-                IEnumerator boolACKs = host.NAKs.GetEnumerator();
+                BitArray naks = new BitArray(host.NumBitArrayBytes * 8, false);
+                foreach (var cli in host.Clients)
+                {
+                    naks = naks.Or(cli.NAK);
+                }
+
+                IEnumerator boolACKs = naks.GetEnumerator();
                 for (int c = 0; c < Console.WindowWidth - 3; ++c)
                 {
                     bool allOn = true;

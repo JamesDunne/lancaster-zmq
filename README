@@ -16,7 +16,6 @@ GUI tools for client and server.
 Possibly SHA1 hash verification per file, but hash mismatches between client/server would only indicate presence of bugs in the client/server code. ZeroMQ guarantees complete message delivery or no message at all. I doubt there'd be any data loss to warrant such SHA1 hash calculations.
 Packaging of transfers into uniquely-identifiable objects, much like a torrent. This would help clients uniquely identify a transfer, which transfers have completed.
 A daemon mode for the client to auto-accept transfers and download them to known locations - ideal for server farm deployments.
-Make clients REJOIN the server after server dies and comes back up again. Currently they are stuck on a blocking Recv call which will never be satisfied.
 Switch from TCP to EPGM protocol for multicast network efficiency. The Windows build of libzmq does not include EPGM support by default, and doing so does not look simple nor easy at the moment.
 
 TROUBLESHOOTING

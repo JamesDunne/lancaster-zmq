@@ -36,7 +36,7 @@ namespace WellDunne.LanCaster
             this.chunkSize = chunkSize;
             this.numChunks = (int)(tarball.Length / chunkSize) + ((tarball.Length % chunkSize > 0) ? 1 : 0);
             this.numBitArrayBytes = ((numChunks + 7) & ~7) >> 3;
-            this.currentNAKs = new BitArray(numBitArrayBytes * 8, false);
+            //this.currentNAKs = new BitArray(numBitArrayBytes * 8, false);
 
             if (this.numChunks == 0) throw new System.Exception();
 
@@ -44,13 +44,14 @@ namespace WellDunne.LanCaster
         }
 
         public int NumChunks { get { return this.numChunks; } }
+        public int NumBitArrayBytes { get { return this.numBitArrayBytes; } }
         public int ChunkSize { get { return this.chunkSize; } }
 
-        public BitArray NAKs { get { return this.currentNAKs; } }
+        public ReadOnlyCollection<ClientState> Clients { get { return new ReadOnlyCollection<ClientState>(this.clients.Values.ToList()); } }
 
         public event Action<ServerHost, int> ChunkSent;
 
-        private sealed class ClientState
+        public sealed class ClientState
         {
             private bool _dirty;
 
@@ -59,8 +60,8 @@ namespace WellDunne.LanCaster
             private BitArray _nak;
             public BitArray NAK { get { return _nak; } set { _nak = value; _dirty = true; } }
 
-            public bool IsDirty { get { return _dirty; } }
-            public ClientState Clean() { _dirty = false; return this; }
+            //public bool IsDirty { get { return _dirty; } }
+            //public ClientState Clean() { _dirty = false; return this; }
 
             public ClientState(Guid identity, BitArray nak)
             {
@@ -70,7 +71,7 @@ namespace WellDunne.LanCaster
             }
         }
 
-        private BitArray currentNAKs;
+        //private BitArray currentNAKs;
         private int numChunks;
         private int numBitArrayBytes;
         private Dictionary<Guid, ClientState> clients = new Dictionary<Guid, ClientState>();
@@ -130,7 +131,7 @@ namespace WellDunne.LanCaster
                     // Wait for the sockets to bind:
                     Thread.Sleep(500);
 
-                    HashSet<Guid> clientsResponded = new HashSet<Guid>();
+                    HashSet<Guid> awaitingClientACKs = new HashSet<Guid>();
 
                     // Create a poller on the control socket to handle client requests:
                     PollItem[] pollItems = new PollItem[1];
@@ -182,13 +183,30 @@ namespace WellDunne.LanCaster
                                     trace("{0}: Sent JOINED response", clientIdentity.ToString());
                                     break;
 
-                                case "NAK":
+                                case "ACK":
+                                    if (!clients.ContainsKey(clientIdentity))
+                                    {
+                                        trace("{0}: Client not joined", clientIdentity.ToString());
+                                        sock.Send("NOTJOINED", Encoding.Unicode);
+                                        clientTimeout.Remove(clientIdentity);
+                                        break;
+                                    }
+
+                                    trace("{0}: ACK received", clientIdentity.ToString());
+
+                                    int nakChunkIdx = BitConverter.ToInt32(request.Dequeue(), 0);
+                                    clients[clientIdentity].NAK[nakChunkIdx] = false;
+                                    sock.Send("", Encoding.Unicode);
+
+                                    awaitingClientACKs.Remove(clientIdentity);
+                                    break;
+
+                                case "NAKS":
                                     // Receive the client's current NAK:
                                     if (!clients.ContainsKey(clientIdentity))
                                     {
                                         trace("{0}: Client not joined", clientIdentity.ToString());
                                         sock.Send("NOTJOINED", Encoding.Unicode);
-                                        clientsResponded.Remove(clientIdentity);
                                         clientTimeout.Remove(clientIdentity);
                                         break;
                                     }
@@ -198,17 +216,13 @@ namespace WellDunne.LanCaster
                                     {
                                         trace("{0}: Bad NAKs", clientIdentity.ToString());
                                         sock.Send("BADNAKS", Encoding.Unicode);
-                                        clientsResponded.Remove(clientIdentity);
                                         clientTimeout.Remove(clientIdentity);
                                         break;
                                     }
 
                                     clients[clientIdentity].NAK = new BitArray(tmp);
                                     trace("{0}: NAKs received", clientIdentity.ToString());
-                                    sock.Send("OK", Encoding.Unicode);
-
-                                    if (!clientsResponded.Contains(clientIdentity))
-                                        clientsResponded.Add(clientIdentity);
+                                    sock.Send("", Encoding.Unicode);
                                     break;
 
                                 case "LEAVE":
@@ -216,7 +230,6 @@ namespace WellDunne.LanCaster
                                     {
                                         trace("{0}: Client already left!", clientIdentity.ToString());
                                         sock.Send("ALREADY_LEFT", Encoding.Unicode);
-                                        clientsResponded.Remove(clientIdentity);
                                         clientTimeout.Remove(clientIdentity);
                                         break;
                                     }
@@ -226,8 +239,7 @@ namespace WellDunne.LanCaster
                                     sock.Send("LEFT", Encoding.Unicode);
                                     trace("{0}: Client left", clientIdentity.ToString());
 
-                                    // TODO: reset NAKs?!?
-                                    clientsResponded.Remove(clientIdentity);
+                                    awaitingClientACKs.Remove(clientIdentity);
                                     clientTimeout.Remove(clientIdentity);
                                     break;
 
@@ -241,9 +253,6 @@ namespace WellDunne.LanCaster
                                     }
 
                                     sock.Send("", Encoding.Unicode);
-
-                                    if (!clientsResponded.Contains(clientIdentity))
-                                        clientsResponded.Add(clientIdentity);
                                     break;
 
                                 default:
@@ -258,10 +267,10 @@ namespace WellDunne.LanCaster
                         } while (false);
                     });
 
-                    int chunkIdx = 0;
+                    int? chunkIdx = null;
                     byte[] buf = new byte[chunkSize];
                     int pollWait = 1000;
-                    int previousClientCount = 0;
+                    //int previousClientCount = 0;
 
                     DateTimeOffset lastPing = DateTimeOffset.UtcNow;
 
@@ -269,7 +278,7 @@ namespace WellDunne.LanCaster
                     while (true)
                     {
                         //trace("POLL {0}", pollWait);
-                        while (ctx.Poll(pollItems, pollWait) == 1);
+                        while (ctx.Poll(pollItems, pollWait) == 1) ;
 
                         if (DateTimeOffset.UtcNow.Subtract(lastPing).TotalMilliseconds >= 500d)
                         {
@@ -282,24 +291,25 @@ namespace WellDunne.LanCaster
                         }
 
                         // Wait for all clients to send back a response:
-                        if (clientsResponded.Count < clients.Count)
+                        if (awaitingClientACKs.Count > 0)
                         {
+                            trace("Still awaiting ACKs, {0}", awaitingClientACKs.Count);
                             DateTimeOffset rightMeow = DateTimeOffset.UtcNow;
-                            
+
                             // Anyone timed out yet?
                             KeyValuePair<Guid, DateTimeOffset> timedOutClient = clientTimeout.FirstOrDefault(dt => dt.Value < rightMeow);
                             if (timedOutClient.Key == Guid.Empty)
                             {
                                 continue;
                             }
-                            
+
                             // Yes, remove that client:
                             Console.WriteLine("{0}: Timeout expired.", timedOutClient.Key);
                             clientTimeout.Remove(timedOutClient.Key);
                             clients.Remove(timedOutClient.Key);
                         }
-                        clientsResponded.Clear();
 
+#if false
                         // If any client state is dirty, OR all the NAKs amongst the joined clients:
                         if (clients.Values.Any(cli => cli.IsDirty) || (clients.Count != previousClientCount))
                         {
@@ -317,50 +327,43 @@ namespace WellDunne.LanCaster
                         {
                             previousClientCount = clients.Count;
 
-                            //pollWait = 10000;
                             continue;
                         }
+#endif
 
-                        //pollWait = 10000;
+                        // Find the next best chunk to send:
+                        var chunkQuery = (
+                            from index in Enumerable.Range(0, numChunks)
+                            // Count up how many clients have NAKs for this chunk:
+                            let count = clients.Values.Count(cli => cli.NAK[index])
+                            // We don't want any fully ACKed chunks:
+                            where count > 0
+                            select new { index, count }
+                        );
 
-                        // If the current chunk is not NAKed, find the next one that is:
-                        //if (!currentNAKs[chunkIdx])
+                        // Find the first chunk with the least number of clients waiting for it:
+                        chunkIdx = null;
+                        for (int i = 1; (i <= clients.Count) && !chunkIdx.HasValue; ++i)
                         {
-                            // Determine the next NAKed packet amongst all joined clients:
-                            int lastIdx = chunkIdx;
-                            bool found = true;
-
-                            do
+                            var tmp = chunkQuery.FirstOrDefault((ch) => (ch.count == i));
+                            if (tmp != null)
                             {
-                                chunkIdx = (chunkIdx + 1) % numChunks;
-
-                                // Have we circled all the way around?
-                                if (lastIdx == chunkIdx)
-                                {
-                                    // None are NAKed. Nothing to do.
-                                    found = false;
-                                    break;
-                                }
-                            } while (!currentNAKs[chunkIdx]);
-
-                            if (!found)
-                            {
-                                //pollWait = 100000;
-                                continue;
+                                chunkIdx = tmp.index;
+                                break;
                             }
                         }
 
                         // Send the current chunk:
-                        if (currentNAKs[chunkIdx])
+                        if (chunkIdx.HasValue)
                         {
                             // Chunk index first:
-                            trace("SEND chunk: {0}", chunkIdx);
+                            trace("SEND chunk: {0}", chunkIdx.Value);
                             data.SendMore(this.subscription, Encoding.Unicode);
                             data.SendMore("DATA", Encoding.Unicode);
-                            data.SendMore(BitConverter.GetBytes(chunkIdx));
+                            data.SendMore(BitConverter.GetBytes(chunkIdx.Value));
 
                             // Chunk size:
-                            tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
+                            tarball.Seek((long)chunkIdx.Value * chunkSize, SeekOrigin.Begin);
                             int currChunkSize = tarball.Read(buf, 0, chunkSize);
                             if (currChunkSize < chunkSize)
                             {
@@ -376,9 +379,41 @@ namespace WellDunne.LanCaster
                                 data.Send(buf);
                             }
 
-                            if (ChunkSent != null) ChunkSent(this, chunkIdx);
-                            trace("COMPLETE chunk: {0}", chunkIdx);
+                            if (ChunkSent != null) ChunkSent(this, chunkIdx.Value);
+                            trace("COMPLETE chunk: {0}", chunkIdx.Value);
+
+                            // Wait for an ACK from all the clients who have this chunk currently NAKed:
+                            awaitingClientACKs.Clear();
+                            foreach (var cli in clients.Values.Where(x => x.NAK[chunkIdx.Value]))
+                            {
+                                trace("Awaiting ACK from {0}", cli.Identity.ToString());
+                                awaitingClientACKs.Add(cli.Identity);
+                            }
                         }
+
+#if false
+                        // Determine the next NAKed packet amongst all joined clients:
+                        int lastIdx = chunkIdx;
+                        bool found = true;
+
+                        do
+                        {
+                            chunkIdx = (chunkIdx + 1) % numChunks;
+
+                            // Have we circled all the way around?
+                            if (lastIdx == chunkIdx)
+                            {
+                                // None are NAKed. Nothing to do.
+                                found = false;
+                                break;
+                            }
+                        } while (!currentNAKs[chunkIdx]);
+
+                        if (!found)
+                        {
+                            continue;
+                        }
+#endif
                     }
                 }
             }

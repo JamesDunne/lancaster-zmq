@@ -51,11 +51,16 @@ namespace WellDunne.LanCaster
             try
             {
                 Context ctx = (Context)threadContext;
-                using (Socket
-                    data = ctx.Socket(SocketType.SUB),
-                    ctl = ctx.Socket(SocketType.REQ)
-                )
+
+                // This would be a using statement on data and ctl but we need to close and reopen sockets, which means
+                // we have to Dispose() of a socket early and create a new instance. C#, wisely so, prevents you from
+                // reassigning a using variable.
+                Socket data = null, ctl = null;
+                try
                 {
+                    data = ctx.Socket(SocketType.SUB);
+                    ctl = ctx.Socket(SocketType.REQ);
+
                     ushort port = 12198;
                     string addr = endpoint;
                     int idx = endpoint.LastIndexOf(':');
@@ -120,21 +125,27 @@ namespace WellDunne.LanCaster
                     {
                         // Send a NAK message for all the chunks:
                         ctl.SendMore(ctl.Identity);
-                        ctl.SendMore("NAK", Encoding.Unicode);
+                        ctl.SendMore("NAKS", Encoding.Unicode);
 
                         BitArray naks = getClientState(this, numChunks, chunkSize, tarball);
                         int numBytes = ((numChunks + 7) & ~7) >> 3;
                         byte[] nakBuf = new byte[numBytes];
                         naks.CopyTo(nakBuf, 0);
-                        trace("CTL1 SEND NAK");
+                        trace("CTL1 SEND NAKS");
                         ctl.Send(nakBuf);
                         nakBuf = null;
 
                         // Wait for the NAK reply:
-                        trace("CTL1 RECV NAK");
-                        ctl.Recv(Encoding.Unicode, 1000);
-                        trace("NAK1 ok");
+                        trace("CTL1 RECV NAKS");
+                        Queue<byte[]> nak1Reply = ctl.RecvAll(10000);
+                        if (nak1Reply == null)
+                        {
+                            trace("Timed out waiting for server reply to NAKS");
+                            return;
+                        }
+                        trace("NAKS1 ok");
 
+                        // Poll for incoming messages on the data SUB socket:
                         PollItem[] pollItems = new PollItem[1];
                         pollItems[0] = data.CreatePollItem(IOMultiPlex.POLLIN);
                         pollItems[0].PollInHandler += new PollHandler((Socket sock, IOMultiPlex mp) =>
@@ -150,11 +161,19 @@ namespace WellDunne.LanCaster
                             {
                                 ctl.SendMore(ctl.Identity);
                                 ctl.Send("ALIVE", Encoding.Unicode);
-                                
+
                                 // Wait for the response:
                                 trace("ctl.RecvAll for ALIVE reply");
-                                Queue<byte[]> pingReply = ctl.RecvAll();
-                                string pingCmd = Encoding.Unicode.GetString( pingReply.Dequeue() );
+                                Queue<byte[]> pingReply = ctl.RecvAll(10000);
+                                if (pingReply == null)
+                                {
+                                    trace("Timed out waiting for server reply to ALIVE");
+                                    ctl.Dispose();
+                                    ctl = null;
+                                    return;
+                                }
+
+                                string pingCmd = Encoding.Unicode.GetString(pingReply.Dequeue());
                                 trace("Server: '{0}'", pingCmd);
                                 if (pingCmd == "") return;
 
@@ -183,7 +202,7 @@ namespace WellDunne.LanCaster
 
                                     // Send our NAKs:
                                     ctl.SendMore(ctl.Identity);
-                                    ctl.SendMore("NAK", Encoding.Unicode);
+                                    ctl.SendMore("NAKS", Encoding.Unicode);
                                     nakBuf = new byte[numBytes];
                                     naks.CopyTo(nakBuf, 0);
                                     trace("CTL2 SEND NAK");
@@ -192,7 +211,14 @@ namespace WellDunne.LanCaster
 
                                     // Wait for the NAK reply:
                                     trace("CTL2 RECV NAK");
-                                    ctl.Recv(Encoding.Unicode, 1000);
+                                    Queue<byte[]> nak2Reply = ctl.RecvAll(10000);
+                                    if (nak2Reply == null)
+                                    {
+                                        trace("Timed out waiting for server reply to NAK");
+                                        ctl.Dispose();
+                                        ctl = null;
+                                        return;
+                                    }
                                     trace("NAK2 ok");
 
                                     return;
@@ -220,6 +246,18 @@ namespace WellDunne.LanCaster
                             // Notify the host that a chunk was written:
                             if (ChunkWritten != null) ChunkWritten(chunkIdx);
 
+#if true
+                            // Send a ACK packet to the control socket:
+                            ctl.SendMore(ctl.Identity);
+                            ctl.SendMore("ACK", Encoding.Unicode);
+                            ctl.Send(BitConverter.GetBytes(chunkIdx));
+                            if (ctl.RecvAll(10000) == null)
+                            {
+                                trace("Timed out waiting for server reply to ACK");
+                                ctl.Dispose();
+                                ctl = null;
+                            }
+#else
                             // Send a NAK packet to the control socket:
                             ctl.SendMore(ctl.Identity);
                             ctl.SendMore("NAK", Encoding.Unicode);
@@ -231,8 +269,18 @@ namespace WellDunne.LanCaster
 
                             // Wait for the reply:
                             trace("CTL3 RECV NAK");
-                            ctl.Recv(Encoding.Unicode, 1000);
-                            trace("NAK3 ok");
+                            Queue<byte[]> nak3Reply = ctl.RecvAll(10000);
+                            if (nak3Reply == null)
+                            {
+                                trace("Timed out waiting for server reply to ALIVE");
+                                ctl.Dispose();
+                                ctl = null;
+                            }
+                            else
+                            {
+                                trace("NAK3 ok");
+                            }
+#endif
 
                             packet = null;
                         });
@@ -242,6 +290,18 @@ namespace WellDunne.LanCaster
                         // Create a socket poller for the data socket:
                         while (true)
                         {
+                            // If we disposed of the previous control socket, create a new one:
+                            if (ctl == null)
+                            {
+                                Console.WriteLine("Creating new socket");
+                                // Set up new socket:
+                                ctl = ctx.Socket(SocketType.REQ);
+
+                                // Connect to the control request socket:
+                                ctl.Connect("tcp://" + addr + ":" + (port + 1).ToString());
+                                ctl.Identity = new byte[1] { (byte)'@' }.Concat(myIdentity.ToByteArray()).ToArray();
+                            }
+
                             // No more NAKed packets?
                             if (naks.Cast<bool>().Take(numChunks).All(b => !b))
                             {
@@ -252,7 +312,7 @@ namespace WellDunne.LanCaster
                             // Process incoming DATA subscription messages while they're available:
                             bool gotData = false;
                             trace("POLL");
-                            while (ctx.Poll(pollItems, 100000) == 1)
+                            while ((ctx.Poll(pollItems, 100000) == 1) && (ctl != null))
                             {
                                 gotData = true;
                                 lastRecv = DateTimeOffset.UtcNow;
@@ -260,17 +320,24 @@ namespace WellDunne.LanCaster
 
                             if (!gotData && (DateTimeOffset.UtcNow.Subtract(lastRecv).TotalSeconds >= 10))
                             {
+#if false
                                 // TODO: Hack the clrzmq2 Socket to allow closing and reopening the same Socket instance using
                                 // a new 0MQ socket.
                                 throw new System.Exception("BUG: No data received from server in 10 seconds. Need to close and reopen socket but CLRZMQ2 API doesn't allow this.");
+#endif
                             }
                         }
 
                         ctl.SendMore(ctl.Identity);
                         ctl.Send("LEAVE", Encoding.Unicode);
 
-                        ctl.RecvAll();
+                        ctl.RecvAll(10000);
                     }
+                }
+                finally
+                {
+                    if (data != null) data.Dispose();
+                    if (ctl != null) ctl.Dispose();
                 }
             }
             catch (System.Exception ex)
