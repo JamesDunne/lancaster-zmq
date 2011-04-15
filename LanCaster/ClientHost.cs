@@ -177,7 +177,7 @@ namespace WellDunne.LanCaster
                                 }
                                 else if (cmd == "WHOAREYOU")
                                 {
-                                    // TODO: complete me!
+                                    controlStateQueue.Enqueue(ControlREQState.SendJOIN);
                                     return DataSUBState.Recv;
                                 }
                                 else
