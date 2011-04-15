@@ -142,6 +142,9 @@ namespace WellDunne.LanCaster
 
                         int chunkIdx = -1;
 
+                        List<int> runningACKs = new List<int>(128);
+                        DateTimeOffset lastSentACKs = DateTimeOffset.UtcNow.Subtract(TimeSpan.FromSeconds(60));
+
                         // We create a state machine to handle our send/recv state:
                         dataFSM = new ZMQStateMasheen<DataSUBState>(
                             // Set the initial state:
@@ -180,7 +183,15 @@ namespace WellDunne.LanCaster
                                     // Notify the host that a chunk was written:
                                     if (ChunkWritten != null) ChunkWritten(this, chunkIdx);
 
-                                    controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, chunkIdx));
+                                    runningACKs.Add(chunkIdx);
+
+                                    // If we ran up the count or the timer, send more ACKs:
+                                    if ((runningACKs.Count >= 128) || (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 1000d))
+                                    {
+                                        lastSentACKs = DateTimeOffset.UtcNow;
+                                        controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, new List<int>(runningACKs)));
+                                        runningACKs.Clear();
+                                    }
                                     return DataSUBState.Recv;
                                 }
                                 else if (cmd == "PING")
@@ -212,6 +223,9 @@ namespace WellDunne.LanCaster
                                     tmpControlState = msg.Object;
                                     return msg.NewState;
                                 }
+                                
+                                // A dummy OUT event? We don't have anything to send, so just sleep:
+                                if ((revents & IOMultiPlex.POLLOUT) == IOMultiPlex.POLLOUT) Thread.Sleep(20);
                                 return ControlREQState.Nothing;
                             }),
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendALIVE, (sock, revents) =>
@@ -311,12 +325,18 @@ namespace WellDunne.LanCaster
                             {
                                 if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
 
-                                int tmpidx = (int)tmpControlState;
+                                List<int> chunksACKed = (List<int>)tmpControlState;
 
                                 // Send an ACK packet to the control socket:
                                 ctl.SendMore(ctl.Identity);
                                 ctl.SendMore("ACK", Encoding.Unicode);
-                                ctl.Send(BitConverter.GetBytes(tmpidx));
+                                ctl.SendMore(BitConverter.GetBytes(chunksACKed.Count));
+                                byte[] ackBuf = new byte[chunksACKed.Count * 4];
+                                for (int i = 0; i < chunksACKed.Count; ++i)
+                                {
+                                    Array.Copy(BitConverter.GetBytes(chunksACKed[i]), 0, ackBuf, i * 4, 4);
+                                }
+                                ctl.Send(ackBuf);
 
                                 return ControlREQState.RecvACK;
                             }),

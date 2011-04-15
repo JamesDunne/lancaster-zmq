@@ -77,7 +77,7 @@ namespace WellDunne.LanCaster
         }
 
         public event Action<ServerHost, int> ChunkSent;
-        public event Action<ServerHost, int> ChunkACKed;
+        public event Action<ServerHost, int[]> ChunksACKed;
         public event Action<ServerHost, Guid> ClientJoined;
         public event Action<ServerHost, Guid, ClientLeaveReason> ClientLeft;
 
@@ -215,18 +215,34 @@ namespace WellDunne.LanCaster
 
                                 trace("{0}: ACK received", clientIdentity.ToString());
 
-                                int nakChunkIdx = BitConverter.ToInt32(request.Dequeue(), 0);
-                                host.clients[clientIdentity].NAK[nakChunkIdx] = false;
-                                sock.Send("", Encoding.Unicode);
+                                int numIdxs = BitConverter.ToInt32(request.Dequeue(), 0);
+
+                                int[] nakChunkIdxs = new int[numIdxs];
+                                
+                                byte[] idxBytes = request.Dequeue();
+                                if (idxBytes.Length != (numIdxs * 4))
+                                {
+                                    sock.Send("BADACK", Encoding.Unicode);
+                                    break;
+                                }
 
                                 lock (host.clientLock)
                                 {
-                                    if (host.awaitingClientACKs.ContainsKey(nakChunkIdx))
+                                    for (int i = 0; i < numIdxs; ++i)
                                     {
-                                        host.awaitingClientACKs[nakChunkIdx].Remove(clientIdentity);
+                                        int idx = BitConverter.ToInt32(idxBytes, i * 4);
+                                        nakChunkIdxs[i] = idx;
+
+                                        host.clients[clientIdentity].NAK[idx] = false;
+                                        if (host.awaitingClientACKs.ContainsKey(idx))
+                                        {
+                                            host.awaitingClientACKs[idx].Remove(clientIdentity);
+                                        }
                                     }
                                 }
-                                if (host.ChunkACKed != null) host.ChunkACKed(host, nakChunkIdx);
+                                if (host.ChunksACKed != null) host.ChunksACKed(host, nakChunkIdxs);
+
+                                sock.Send("", Encoding.Unicode);
                                 break;
 
                             case "NAKS":
@@ -235,7 +251,7 @@ namespace WellDunne.LanCaster
                                 {
                                     lock (host.clientLock)
                                     {
-                                        host.clientTimeout.Remove(clientIdentity); 
+                                        host.clientTimeout.Remove(clientIdentity);
                                     }
 
                                     trace("{0}: Client not joined", clientIdentity.ToString());
@@ -248,9 +264,9 @@ namespace WellDunne.LanCaster
                                 {
                                     lock (host.clientLock)
                                     {
-                                        host.clientTimeout.Remove(clientIdentity); 
+                                        host.clientTimeout.Remove(clientIdentity);
                                     }
-                                
+
                                     trace("{0}: Bad NAKs", clientIdentity.ToString());
                                     sock.Send("BADNAKS", Encoding.Unicode);
                                     break;
@@ -270,7 +286,7 @@ namespace WellDunne.LanCaster
                                 {
                                     lock (host.clientLock)
                                     {
-                                        host.clientTimeout.Remove(clientIdentity); 
+                                        host.clientTimeout.Remove(clientIdentity);
                                     }
 
                                     trace("{0}: Client already left!", clientIdentity.ToString());
@@ -289,7 +305,7 @@ namespace WellDunne.LanCaster
                                 }
 
                                 if (host.ClientLeft != null) host.ClientLeft(host, clientIdentity, ClientLeaveReason.Left);
-                                
+
                                 sock.Send("LEFT", Encoding.Unicode);
                                 trace("{0}: Client left", clientIdentity.ToString());
                                 break;
@@ -456,7 +472,7 @@ namespace WellDunne.LanCaster
 
                         if (!chunkIdx.HasValue)
                         {
-                            // FIXME:
+                            // Sleep until we're ready to send more data:
                             Thread.Sleep(20);
                             continue;
                         }
