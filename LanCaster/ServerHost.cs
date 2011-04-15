@@ -154,7 +154,7 @@ namespace WellDunne.LanCaster
                         Queue<byte[]> request = sock.RecvAll();
 
                         Guid clientIdentity = new Guid(request.Dequeue().Skip(1).ToArray());
-                        clientTimeout[clientIdentity] = DateTimeOffset.UtcNow.AddSeconds(3);
+                        clientTimeout[clientIdentity] = DateTimeOffset.UtcNow.AddSeconds(10);
 
                         string cmd = Encoding.Unicode.GetString(request.Dequeue());
 

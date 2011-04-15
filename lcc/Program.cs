@@ -250,6 +250,7 @@ namespace WellDunne.LanCaster.Client
             int numChunkBytes = ((numChunks + 7) & ~7) >> 3;
             ackBuf = new byte[numChunkBytes];
 
+            localStateFile.Refresh();
             if (localStateFile.Exists)
             {
                 if (localStateStream != null)
@@ -272,6 +273,7 @@ namespace WellDunne.LanCaster.Client
                 }
             }
 
+            localStateFile.Refresh();
             if (!localStateFile.Exists)
             {
                 // Create a new file and allocate enough space for storing a NAK bit array:
