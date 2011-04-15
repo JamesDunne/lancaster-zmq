@@ -29,6 +29,7 @@ namespace WellDunne.LanCaster.Server
             HashSet<string> ignoreFiles = new HashSet<string>();
             HashSet<string> ignoreExtensions = new HashSet<string>();
             bool listFiles = false;
+            int queueBacklog = 20;
 
             // Set default chunk size:
             int chunkSize = 128 * 1024;
@@ -160,6 +161,15 @@ namespace WellDunne.LanCaster.Server
                         // Override the config with the commandline arg if it can be parsed:
                         Int32.TryParse(argQueue.Dequeue(), out chunkSize);
                         break;
+                    case "-q":
+                        if (argQueue.Count == 0)
+                        {
+                            Console.Error.WriteLine("-q expects a queue length argument");
+                            return;
+                        }
+                        // Override the config with the commandline arg if it can be parsed:
+                        Int32.TryParse(argQueue.Dequeue(), out queueBacklog);
+                        break;
                     case "-?":
                         DisplayUsage();
                         return;
@@ -255,7 +265,7 @@ namespace WellDunne.LanCaster.Server
                 if (!wroteLegend)
                 {
                     Console.WriteLine();
-                    Console.WriteLine(" '-' no NAKs      '*' some NAKs      '#' all NAKs      'O' current zone");
+                    Console.WriteLine(" '-' no NAKs      '*' some NAKs      '#' all NAKs      'S' currently sending");
                     Console.WriteLine();
                     wroteLegend = true;
                 }
@@ -296,7 +306,7 @@ namespace WellDunne.LanCaster.Server
 
                         for (int x = lastc; x < c; ++x)
                         {
-                            if ((lastWrittenChunk >= c * blocks) && (lastWrittenChunk < (c + 1) * blocks)) Console.Write('O');
+                            if ((lastWrittenChunk >= c * blocks) && (lastWrittenChunk < (c + 1) * blocks)) Console.Write('S');
                             else if (allOn) Console.Write('#');
                             else if (allOff) Console.Write('*');
                             else Console.Write('-');
@@ -377,6 +387,7 @@ new[] { @"-r",                  @"Set recursive mode (applies to following -d op
 new[] { @"-R",                  @"Set nonrecursive mode (applies to following -d options)." },
 new[] { @"-d <path>",           @"(REQUIRED) Add files from directory to upload. Can specify multiple -d options." },
 new[] { @"-c <chunk size>",     @"Set the chunk size in bytes to use for dividing up the files into chunks. Larger values are better for faster networks. Recommend keeping it under 1048576. Default is 131072 (128 KB)" },
+new[] { @"-q <queue backlog>",  @"Set the server transmission queue backlog length (number of chunks)." },
             };
 
             // Displays the error text wrapped to the console's width:

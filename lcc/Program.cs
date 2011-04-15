@@ -146,7 +146,7 @@ namespace WellDunne.LanCaster.Client
                 if (!wroteLegend)
                 {
                     Console.WriteLine();
-                    Console.WriteLine(" '-' no chunks    '*' some chunks    '#' all chunks    'O' current zone");
+                    Console.WriteLine(" '-' no chunks    '*' some chunks    '#' all chunks    'W' current writer");
                     Console.WriteLine();
                     wroteLegend = true;
                 }
@@ -181,7 +181,7 @@ namespace WellDunne.LanCaster.Client
 
                         for (int x = lastc; x < c; ++x)
                         {
-                            if ((lastWrittenChunk >= c * blocks) && (lastWrittenChunk < (c + 1) * blocks)) Console.Write('O');
+                            if ((lastWrittenChunk >= c * blocks) && (lastWrittenChunk < (c + 1) * blocks)) Console.Write('W');
                             else if (allOn) Console.Write('#');
                             else if (allOff) Console.Write('*');
                             else Console.Write('-');

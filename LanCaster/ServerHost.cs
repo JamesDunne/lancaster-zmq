@@ -344,7 +344,7 @@ namespace WellDunne.LanCaster
                             let ch = cli.client.NAK
                                 .Cast<bool>()
                                 .Select((b, i) => new { b, i })
-                                .FirstOrDefault(x => x.b /* && ((!awaitingClientACKs.ContainsKey(x.i)) || (awaitingClientACKs[x.i].Count == 0)) */)
+                                .FirstOrDefault(x => x.b  && ((!awaitingClientACKs.ContainsKey(x.i)) || (awaitingClientACKs[x.i].Count == 0)))
                             where ch != null
                             select (int?)ch.i
                         ).FirstOrDefault();
