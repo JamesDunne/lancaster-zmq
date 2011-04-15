@@ -62,6 +62,18 @@ namespace WellDunne.LanCaster
             RecvNAKS
         }
 
+        private struct QueuedControlMessage
+        {
+            public readonly ControlREQState NewState;
+            public readonly object Object;
+
+            public QueuedControlMessage(ControlREQState newState, object obj)
+            {
+                NewState = newState;
+                Object = obj;
+            }
+        }
+
         /// <summary>
         /// Main thread to host the client process.
         /// </summary>
@@ -126,7 +138,7 @@ namespace WellDunne.LanCaster
 
                         ZMQStateMasheen<DataSUBState> dataFSM;
                         ZMQStateMasheen<ControlREQState> controlFSM;
-                        Queue<ControlREQState> controlStateQueue = new Queue<ControlREQState>();
+                        Queue<QueuedControlMessage> controlStateQueue = new Queue<QueuedControlMessage>();
 
                         int chunkIdx = -1;
 
@@ -168,17 +180,17 @@ namespace WellDunne.LanCaster
                                     // Notify the host that a chunk was written:
                                     if (ChunkWritten != null) ChunkWritten(this, chunkIdx);
 
-                                    controlStateQueue.Enqueue(ControlREQState.SendACK);
+                                    controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, chunkIdx));
                                     return DataSUBState.Recv;
                                 }
                                 else if (cmd == "PING")
                                 {
-                                    controlStateQueue.Enqueue(ControlREQState.SendALIVE);
+                                    controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendALIVE, null));
                                     return DataSUBState.Recv;
                                 }
                                 else if (cmd == "WHOAREYOU")
                                 {
-                                    controlStateQueue.Enqueue(ControlREQState.SendJOIN);
+                                    controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendJOIN, null));
                                     return DataSUBState.Recv;
                                 }
                                 else
@@ -189,11 +201,17 @@ namespace WellDunne.LanCaster
                         );
 
                         // We create a state machine to handle our send/recv state:
+                        object tmpControlState = null;
                         controlFSM = new ZMQStateMasheen<ControlREQState>(
                             ControlREQState.SendJOIN,
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.Nothing, (sock, revents) =>
                             {
-                                if (controlStateQueue.Count > 0) return controlStateQueue.Dequeue();
+                                if (controlStateQueue.Count > 0)
+                                {
+                                    var msg = controlStateQueue.Dequeue();
+                                    tmpControlState = msg.Object;
+                                    return msg.NewState;
+                                }
                                 return ControlREQState.Nothing;
                             }),
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendALIVE, (sock, revents) =>
@@ -293,10 +311,12 @@ namespace WellDunne.LanCaster
                             {
                                 if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
 
-                                // Send a ACK packet to the control socket:
+                                int tmpidx = (int)tmpControlState;
+
+                                // Send an ACK packet to the control socket:
                                 ctl.SendMore(ctl.Identity);
                                 ctl.SendMore("ACK", Encoding.Unicode);
-                                ctl.Send(BitConverter.GetBytes(chunkIdx));
+                                ctl.Send(BitConverter.GetBytes(tmpidx));
 
                                 return ControlREQState.RecvACK;
                             }),
