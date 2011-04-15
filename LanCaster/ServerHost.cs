@@ -88,16 +88,19 @@ namespace WellDunne.LanCaster
             private BitArray _nak;
             public BitArray NAK { get { return _nak; } set { _nak = value; /* _dirty = true; */ } }
 
-            //private bool _dirty;
-            //public bool IsDirty { get { return _dirty; } }
-            //public ClientState Clean() { _dirty = false; return this; }
+            internal Stopwatch RateTimer { get; set; }
+            internal int RunningACKCount { get; set; }
+            internal long LastElapsedMilliseconds { get; set; }
+            public int ACKsPerMinute { get; internal set; }
 
             public ClientState(Guid identity, BitArray nak)
             {
                 this.Identity = identity;
-
-                //this._dirty = false;
                 this._nak = nak;
+                this.RateTimer = new Stopwatch();
+                this.ACKsPerMinute = 0;
+                this.LastElapsedMilliseconds = 0L;
+                this.RunningACKCount = 0;
             }
         }
 
@@ -110,7 +113,6 @@ namespace WellDunne.LanCaster
         private int queueBacklog;
         private ulong hwm;
         private bool isRunning;
-        private int lastAcks, currentAcks;
 
         private static void WriteBuffer(Stream st, byte[] buf)
         {
@@ -229,22 +231,44 @@ namespace WellDunne.LanCaster
 
                                 lock (host.clientLock)
                                 {
+                                    ClientState cli = host.clients[clientIdentity];
+                                    cli.RunningACKCount += numIdxs;
+                                    
+                                    // Measure the ACK rate in ACKs per minute:
+                                    long elapsed = cli.RateTimer.ElapsedMilliseconds - cli.LastElapsedMilliseconds;
+                                    if (elapsed >= 1000L)
+                                    {
+                                        cli.ACKsPerMinute = (int)((cli.RunningACKCount * 1000L * 60L) / elapsed);
+                                        cli.LastElapsedMilliseconds = cli.RateTimer.ElapsedMilliseconds;
+                                        cli.RunningACKCount = 0;
+                                    }
+
+                                    if (cli.RateTimer.ElapsedMilliseconds >= 60000L)
+                                    {
+                                        // 60 seconds elapsed? Reset the timer so it doesn't get carried away:
+                                        cli.RateTimer.Reset();
+                                        cli.RateTimer.Start();
+                                        cli.LastElapsedMilliseconds = 0L;
+                                    }
+                                    else if (!cli.RateTimer.IsRunning)
+                                    {
+                                        cli.RateTimer.Reset();
+                                        cli.RateTimer.Start();
+                                        cli.LastElapsedMilliseconds = 0L;
+                                    }
+
+                                    // ACK the packets:
                                     for (int i = 0; i < numIdxs; ++i)
                                     {
                                         int idx = BitConverter.ToInt32(idxBytes, i * 4);
                                         nakChunkIdxs[i] = idx;
 
-                                        host.clients[clientIdentity].NAK[idx] = false;
+                                        cli.NAK[idx] = false;
                                         if (host.awaitingClientACKs.ContainsKey(idx))
                                         {
                                             host.awaitingClientACKs[idx].Remove(clientIdentity);
                                         }
                                     }
-
-                                    // Keep a running count of ACKs received so we know when to keep
-                                    // the server sending data. If no one is listening or is too slow,
-                                    // don't bother pegging the CPU in the while loop.
-                                    Interlocked.Increment(ref host.currentAcks);
                                 }
                                 if (host.ChunksACKed != null) host.ChunksACKed(host, nakChunkIdxs);
 
@@ -407,7 +431,6 @@ namespace WellDunne.LanCaster
                             data.Send("PING", Encoding.Unicode);
                         }
 
-                        int currAcksValue;
                         lock (clientLock)
                         {
                             // Anyone timed out yet?
@@ -424,19 +447,7 @@ namespace WellDunne.LanCaster
 
                                 if (ClientLeft != null) ClientLeft(this, timedOutClient.Key, ClientLeaveReason.TimedOut);
                             }
-
-                            currAcksValue = Thread.VolatileRead(ref currentAcks);
                         }
-
-#if false
-                        // If we didn't ACK anything at all this time around, wait until we do before we continue sending:
-                        if (lastAcks == currAcksValue)
-                        {
-                            Thread.Sleep(20);
-                            continue;
-                        }
-                        lastAcks = currAcksValue;
-#endif
 
                         // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least `queueBacklog` chunks:
                         if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= queueBacklog)

@@ -285,12 +285,24 @@ namespace WellDunne.LanCaster.Server
                     wroteLegend = true;
                 }
 
-                string backup = new string('\b', Console.WindowWidth);
+                var clients = host.Clients;
+                string backup = new string('\b', Console.WindowWidth - 1);
                 Console.Write(backup);
+#if true
+                string spaces = new string(' ', Console.WindowWidth - 1);
+                Console.Write(spaces);
+                Console.Write(backup);
+                // Write ACK rates:
+                foreach (var cli in clients)
+                {
+                    Console.Write("{0,12} cpm", cli.ACKsPerMinute.ToString("##,0"));
+                }
+                Console.WriteLine();
+#endif
                 Console.Write('[');
 
                 BitArray naks = new BitArray(host.NumBitArrayBytes * 8, false);
-                foreach (var cli in host.Clients)
+                foreach (var cli in clients)
                 {
                     naks = naks.Or(cli.NAK);
                 }
