@@ -304,7 +304,7 @@ namespace WellDunne.LanCaster.Server
                             allOff = allOff | curr;
                         }
 
-                        for (int x = lastc; x < c; ++x)
+                        for (int x = lastc; (x < c) && (c < usableWidth); ++x)
                         {
                             if ((lastWrittenChunk >= c * blocks) && (lastWrittenChunk < (c + 1) * blocks)) Console.Write('S');
                             else if (allOn) Console.Write('#');
@@ -329,9 +329,9 @@ namespace WellDunne.LanCaster.Server
                         if (!boolACKs.MoveNext()) break;
                         bool curr = (bool)boolACKs.Current;
 
-                        for (int x = lastc; x < c; ++x)
+                        for (int x = lastc; (x < c) && (c < usableWidth); ++x)
                         {
-                            if (lastWrittenChunk == i) Console.Write('O');
+                            if (lastWrittenChunk == i) Console.Write('S');
                             else if (curr) Console.Write('#');
                             else Console.Write('-');
                         }
