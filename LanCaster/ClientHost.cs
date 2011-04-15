@@ -20,6 +20,9 @@ namespace WellDunne.LanCaster
         private BooleanSwitch doLogging;
         private int chunkSize;
         private bool testMode;
+        private ushort port;
+        private string device;
+        private ulong hwm;
 
         public delegate BitArray GetClientNAKStateDelegate(ClientHost host, int numChunks, int chunkSize, TarballStreamReader tarball);
 
@@ -32,6 +35,23 @@ namespace WellDunne.LanCaster
             this.getClientState = getClientState;
             this.Completed = false;
             this.doLogging = new BooleanSwitch("doLogging", "Log client events", "0");
+
+            this.port = 12198;
+            this.device = endpoint;
+            int idx = endpoint.LastIndexOf(':');
+            if (idx >= 0)
+            {
+                device = endpoint.Substring(0, idx);
+                UInt16.TryParse(endpoint.Substring(idx + 1), out port);
+            }
+
+            string hwmValue = ConfigurationManager.AppSettings["HWM"];
+            ulong tmphwm = 16;
+            if (hwmValue != null)
+            {
+                UInt64.TryParse(hwmValue, out tmphwm);
+            }
+            this.hwm = tmphwm;
         }
 
         private GetClientNAKStateDelegate getClientState;
@@ -93,28 +113,15 @@ namespace WellDunne.LanCaster
                     data = ctx.Socket(SocketType.SUB);
                     ctl = ctx.Socket(SocketType.REQ);
 
-                    ushort port = 12198;
-                    string addr = endpoint;
-                    int idx = endpoint.LastIndexOf(':');
-                    if (idx >= 0)
-                    {
-                        addr = endpoint.Substring(0, idx);
-                        UInt16.TryParse(endpoint.Substring(idx + 1), out port);
-                    }
-
-                    string hwmValue = ConfigurationManager.AppSettings["HWM"];
-                    if (hwmValue != null)
-                    {
-                        data.HWM = UInt64.Parse(hwmValue);
-                        ctl.HWM = UInt64.Parse(hwmValue);
-                    }
+                    data.HWM = hwm;
+                    ctl.HWM = hwm;
 
                     data.RcvBuf = 1048576UL * 128UL * 2UL;
-                    data.Connect("tcp://" + addr + ":" + port.ToString());
+                    data.Connect("tcp://" + device + ":" + port.ToString());
                     data.Subscribe(subscription, Encoding.Unicode);
 
                     // Connect to the control request socket:
-                    ctl.Connect("tcp://" + addr + ":" + (port + 1).ToString());
+                    ctl.Connect("tcp://" + device + ":" + (port + 1).ToString());
 
                     Guid myIdentity = Guid.NewGuid();
                     ctl.Identity = new byte[1] { (byte)'@' }.Concat(myIdentity.ToByteArray()).ToArray();
@@ -372,9 +379,9 @@ namespace WellDunne.LanCaster
                                 trace("Creating new CONTROL socket");
                                 // Set up new socket:
                                 ctl = ctx.Socket(SocketType.REQ);
-
+                                ctl.HWM = hwm;
                                 // Connect to the control request socket:
-                                ctl.Connect("tcp://" + addr + ":" + (port + 1).ToString());
+                                ctl.Connect("tcp://" + device + ":" + (port + 1).ToString());
                                 ctl.Identity = new byte[1] { (byte)'@' }.Concat(myIdentity.ToByteArray()).ToArray();
                             }
 
