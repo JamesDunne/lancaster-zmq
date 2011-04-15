@@ -412,13 +412,6 @@ namespace WellDunne.LanCaster
                     // Begin the data delivery loop:
                     while (true)
                     {
-#if false
-                        // Wait until the data socket is ready to send on:
-                        while (ctx.Poll(pollItems) == 0)
-                        {
-                        }
-#endif
-
                         // PING everyone:
                         if (DateTimeOffset.UtcNow.Subtract(lastPing).TotalMilliseconds >= 500d)
                         {
@@ -483,23 +476,22 @@ namespace WellDunne.LanCaster
                         }
 
                         // Don't send faster than our fastest receiver can receive:
-                        if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute >= (maxACKsPerMinute * 1200 / 1000)))
+                        if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute >= (maxACKsPerMinute * 150 / 100)))
                         {
-                            Thread.Sleep(20);
-                            continue;
-                        }
-#else
-                        // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least `queueBacklog` chunks:
-                        if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= queueBacklog)
-                        {
-                            //trace("Still awaiting ACKs on {0} packets", awaitingClientACKs.Count);
-                            Thread.Sleep(20);
+                            Thread.Sleep(1);
                             continue;
                         }
 #endif
 
+                        // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least `queueBacklog` chunks:
+                        if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= queueBacklog)
+                        {
+                            //trace("Still awaiting ACKs on {0} packets", awaitingClientACKs.Count);
+                            Thread.Sleep(1);
+                            continue;
+                        }
+
                         // Find the next best chunk to send:
-#if true
                         lock (clientLock)
                         {
                             // Order the clients by number of chunks left to receive:
@@ -521,33 +513,11 @@ namespace WellDunne.LanCaster
                                 select (int?)ch.i
                             ).FirstOrDefault();
                         }
-#else
-                        var chunkQuery = (
-                            from index in Enumerable.Range(0, numChunks)
-                            // Count up how many clients have NAKs for this chunk:
-                            let count = clients.Values.Count(cli => cli.NAK[index])
-                            // We don't want any fully ACKed chunks:
-                            where count > 0
-                            select new { index, count }
-                        );
-
-                        // Find the first chunk with the least number of clients waiting for it:
-                        chunkIdx = null;
-                        for (int i = 1; (i <= clients.Count) && !chunkIdx.HasValue; ++i)
-                        {
-                            var tmp = chunkQuery.FirstOrDefault((ch) => (ch.count == i));
-                            if (tmp != null)
-                            {
-                                chunkIdx = tmp.index;
-                                break;
-                            }
-                        }
-#endif
 
                         if (!chunkIdx.HasValue)
                         {
                             // Sleep until we're ready to send more data:
-                            Thread.Sleep(20);
+                            Thread.Sleep(1);
                             continue;
                         }
 
@@ -561,7 +531,7 @@ namespace WellDunne.LanCaster
 
                         if (!notAwaiting)
                         {
-                            Thread.Sleep(20);
+                            Thread.Sleep(1);
                             continue;
                         }
 
@@ -594,19 +564,20 @@ namespace WellDunne.LanCaster
                         lock (clientLock)
                         {
                             // Wait for an ACK from all the clients who have this chunk currently NAKed:
+                            HashSet<Guid> awaiter;
                             if (!awaitingClientACKs.ContainsKey(chunkIdx.Value))
                             {
-                                awaitingClientACKs[chunkIdx.Value] = new HashSet<Guid>();
+                                awaiter = awaitingClientACKs[chunkIdx.Value] = new HashSet<Guid>();
                             }
                             else
                             {
-                                awaitingClientACKs[chunkIdx.Value].Clear();
+                                (awaiter = awaitingClientACKs[chunkIdx.Value]).Clear();
                             }
 
                             foreach (var cli in clients.Values.Where(x => x.NAK[chunkIdx.Value]))
                             {
                                 //trace("Awaiting ACK from {0} for chunk {1}", cli.Identity.ToString(), chunkIdx.Value);
-                                awaitingClientACKs[chunkIdx.Value].Add(cli.Identity);
+                                awaiter.Add(cli.Identity);
                             }
                         }
 
