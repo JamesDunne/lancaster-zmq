@@ -410,6 +410,11 @@ namespace WellDunne.LanCaster
 
                     DateTimeOffset lastPing = DateTimeOffset.UtcNow;
 
+                    Stopwatch sendTimer = Stopwatch.StartNew();
+                    long lastElapsedMilliseconds = sendTimer.ElapsedMilliseconds;
+                    int msgsSent = 0;
+                    int msgsPerMinute = 0;
+
                     // Begin the data delivery loop:
                     while (true)
                     {
@@ -449,6 +454,44 @@ namespace WellDunne.LanCaster
                             }
                         }
 
+#if true
+                        // Measure our message send rate per minute:
+                        long elapsed = sendTimer.ElapsedMilliseconds - lastElapsedMilliseconds;
+                        if (elapsed >= 1000L)
+                        {
+                            msgsPerMinute = (int)((msgsSent * 1000L * 60L) / elapsed);
+                            lastElapsedMilliseconds = sendTimer.ElapsedMilliseconds;
+                            msgsSent = 0;
+                        }
+
+                        if (sendTimer.ElapsedMilliseconds >= 60000L)
+                        {
+                            // 60 seconds elapsed? Reset the timer so it doesn't get carried away:
+                            sendTimer.Reset();
+                            sendTimer.Start();
+                            lastElapsedMilliseconds = 0L;
+                        }
+                        else if (!sendTimer.IsRunning)
+                        {
+                            sendTimer.Reset();
+                            sendTimer.Start();
+                            lastElapsedMilliseconds = 0L;
+                        }
+
+                        // Find the ACKs/min rate of our fastest receiver:
+                        int maxACKsPerMinute;
+                        lock (clientLock)
+                        {
+                            maxACKsPerMinute = clients.Values.Max(cli => cli.ACKsPerMinute);
+                        }
+
+                        // Don't send faster than our fastest receiver can receive:
+                        if ((msgsPerMinute > 0) && (msgsPerMinute > maxACKsPerMinute))
+                        {
+                            Thread.Sleep(20);
+                            continue;
+                        }
+#else
                         // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least `queueBacklog` chunks:
                         if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= queueBacklog)
                         {
@@ -456,6 +499,7 @@ namespace WellDunne.LanCaster
                             Thread.Sleep(20);
                             continue;
                         }
+#endif
 
                         // Find the next best chunk to send:
 #if true
@@ -568,6 +612,8 @@ namespace WellDunne.LanCaster
                                 awaitingClientACKs[chunkIdx.Value].Add(cli.Identity);
                             }
                         }
+
+                        ++msgsSent;
                     }
 
                     // TODO: break out of the while loop somehow
