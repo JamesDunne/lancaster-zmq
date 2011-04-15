@@ -2,6 +2,7 @@ LanCaster-Release/
 tmpdl*/
 bin/
 obj/
+LanCaster-Release*.zip
 *.user
 *.suo
 *.psess
