@@ -482,11 +482,14 @@ namespace WellDunne.LanCaster
                         int maxACKsPerMinute;
                         lock (clientLock)
                         {
-                            maxACKsPerMinute = clients.Values.Max(cli => cli.ACKsPerMinute);
+                            if (clients.Count > 0)
+                                maxACKsPerMinute = clients.Values.Max(cli => cli.ACKsPerMinute);
+                            else
+                                maxACKsPerMinute = 0;
                         }
 
                         // Don't send faster than our fastest receiver can receive:
-                        if ((msgsPerMinute > 0) && (msgsPerMinute > maxACKsPerMinute))
+                        if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute > maxACKsPerMinute))
                         {
                             Thread.Sleep(20);
                             continue;
