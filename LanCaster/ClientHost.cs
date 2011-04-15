@@ -141,7 +141,7 @@ namespace WellDunne.LanCaster
                                 string sub = Encoding.Unicode.GetString(packet.Dequeue());
                                 string cmd = Encoding.Unicode.GetString(packet.Dequeue());
 
-                                if (cmd == "DATA")
+                                if ((naks != null) && (cmd == "DATA"))
                                 {
                                     chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
 
@@ -175,9 +175,13 @@ namespace WellDunne.LanCaster
                                     controlStateQueue.Enqueue(ControlREQState.SendALIVE);
                                     return DataSUBState.Recv;
                                 }
+                                else if (cmd == "WHOAREYOU")
+                                {
+                                    // TODO: complete me!
+                                    return DataSUBState.Recv;
+                                }
                                 else
                                 {
-                                    controlStateQueue.Enqueue(ControlREQState.SendUNKNOWN);
                                     return DataSUBState.Recv;
                                 }
                             })
