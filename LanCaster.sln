@@ -12,6 +12,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		Performance1.psess = Performance1.psess
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "lcui", "lcui\lcui.csproj", "{76A9B171-EF83-48BE-B89B-9858325E558D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x86 = Debug|x86
@@ -30,6 +32,10 @@ Global
 		{78964F7E-440E-4E5F-9C9E-A1C467A29F1B}.Debug|x86.Build.0 = Debug|x86
 		{78964F7E-440E-4E5F-9C9E-A1C467A29F1B}.Release|x86.ActiveCfg = Release|x86
 		{78964F7E-440E-4E5F-9C9E-A1C467A29F1B}.Release|x86.Build.0 = Release|x86
+		{76A9B171-EF83-48BE-B89B-9858325E558D}.Debug|x86.ActiveCfg = Debug|x86
+		{76A9B171-EF83-48BE-B89B-9858325E558D}.Debug|x86.Build.0 = Debug|x86
+		{76A9B171-EF83-48BE-B89B-9858325E558D}.Release|x86.ActiveCfg = Release|x86
+		{76A9B171-EF83-48BE-B89B-9858325E558D}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
