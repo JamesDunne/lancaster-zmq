@@ -428,6 +428,7 @@ namespace WellDunne.LanCaster
                             currAcksValue = Thread.VolatileRead(ref currentAcks);
                         }
 
+#if false
                         // If we didn't ACK anything at all this time around, wait until we do before we continue sending:
                         if (lastAcks == currAcksValue)
                         {
@@ -435,6 +436,7 @@ namespace WellDunne.LanCaster
                             continue;
                         }
                         lastAcks = currAcksValue;
+#endif
 
                         // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least `queueBacklog` chunks:
                         if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= queueBacklog)
