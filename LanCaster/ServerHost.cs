@@ -22,18 +22,20 @@ namespace WellDunne.LanCaster
 
         public int chunkSize;
 
-        public ServerHost(string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize)
+        public ServerHost(string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize, int queueBacklog)
         {
             if (String.IsNullOrEmpty(endpoint)) throw new ArgumentNullException("endpoint");
             if (String.IsNullOrEmpty(subscription)) throw new ArgumentNullException("subscription");
             if (tarball == null) throw new ArgumentNullException("tarball");
             if (String.IsNullOrEmpty(basePath)) throw new ArgumentNullException("basePath");
+            if (queueBacklog < 1) throw new ArgumentOutOfRangeException("queueBacklog", "queueBacklog must be 1 or greater");
 
             this.endpoint = endpoint;
             this.subscription = subscription;
             this.tarball = tarball;
             this.basePath = basePath;
             this.chunkSize = chunkSize;
+            this.queueBacklog = queueBacklog;
             this.numChunks = (int)(tarball.Length / chunkSize) + ((tarball.Length % chunkSize > 0) ? 1 : 0);
             this.numBitArrayBytes = ((numChunks + 7) & ~7) >> 3;
             //this.currentNAKs = new BitArray(numBitArrayBytes * 8, false);
@@ -86,6 +88,7 @@ namespace WellDunne.LanCaster
         private int numBitArrayBytes;
         private Dictionary<Guid, ClientState> clients = new Dictionary<Guid, ClientState>();
         private Dictionary<Guid, DateTimeOffset> clientTimeout = new Dictionary<Guid, DateTimeOffset>();
+        private int queueBacklog;
 
         private static void WriteBuffer(Stream st, byte[] buf)
         {
@@ -320,8 +323,8 @@ namespace WellDunne.LanCaster
                             if (ClientLeft != null) ClientLeft(this, timedOutClient.Key, ClientLeaveReason.TimedOut);
                         }
 
-                        // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least 10 chunks:
-                        if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= 50)
+                        // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least `queueBacklog` chunks:
+                        if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= queueBacklog)
                         {
                             trace("Still awaiting ACKs on {0} packets", awaitingClientACKs.Count);
                             continue;

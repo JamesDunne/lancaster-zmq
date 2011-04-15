@@ -96,20 +96,14 @@ namespace WellDunne.LanCaster
             trace("Closing file '{0}'", this._files[this._currIndex].RelativePath);
             this._currFile.Flush();
             this._currFile.Close();
+            this._currFile = null;
             if (NotifyFileClosed != null) NotifyFileClosed(this._files[this._currIndex]);
         }
 
         protected override void Dispose(bool disposing)
         {
             base.Dispose(disposing);
-            if (this._currFile != null)
-            {
-                if (this._currIndex >= this._files.Count) this._currIndex = this._files.Count - 1;
-                trace("Closing file '{0}'", this._files[this._currIndex].RelativePath);
-                this._currFile.Flush();
-                this._currFile.Close();
-                if (NotifyFileClosed != null) NotifyFileClosed(this._files[this._currIndex]);
-            }
+            Close();
         }
 
         public override bool CanRead

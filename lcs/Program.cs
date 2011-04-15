@@ -207,7 +207,7 @@ namespace WellDunne.LanCaster.Server
 
             using (var serverTarball = new TarballStreamWriter(files))
             {
-                var server = new LanCaster.ServerHost(endpoint, subscription, serverTarball, basePath, chunkSize);
+                var server = new LanCaster.ServerHost(endpoint, subscription, serverTarball, basePath, chunkSize, queueBacklog);
 
                 Console.WriteLine();
                 Console.WriteLine("{0,15} chunks @ {1,13} bytes/chunk", server.NumChunks.ToString("##,#"), server.ChunkSize.ToString("##,#"));

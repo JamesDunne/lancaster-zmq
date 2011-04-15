@@ -222,7 +222,6 @@ namespace WellDunne.LanCaster
                                 if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
 
                                 // Send a JOIN request:
-                                Console.WriteLine("JOIN");
                                 ctl.SendMore(ctl.Identity);
                                 ctl.Send("JOIN", Encoding.Unicode);
 
@@ -236,7 +235,6 @@ namespace WellDunne.LanCaster
                                 string resp = Encoding.Unicode.GetString(reply.Dequeue());
                                 if (resp != "JOINED")
                                 {
-                                    Console.WriteLine("Fail!");
                                     return ControlREQState.Nothing;
                                 }
 
