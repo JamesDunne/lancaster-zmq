@@ -56,6 +56,7 @@
     <Compile Include="ServerHost.cs" />
     <Compile Include="TarballStreamReader.cs" />
     <Compile Include="TarballStreamWriter.cs" />
+    <Compile Include="ZMQStateMasheen.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

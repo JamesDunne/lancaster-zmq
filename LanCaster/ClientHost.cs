@@ -44,6 +44,25 @@ namespace WellDunne.LanCaster
 
         public bool Completed { get; private set; }
 
+        private enum DataSUBState
+        {
+            Recv
+        }
+
+        private enum ControlREQState
+        {
+            Nothing,
+            SendACK,
+            SendALIVE,
+            RecvALIVE,
+            SendUNKNOWN,
+            SendJOIN,
+            RecvACK,
+            RecvJOIN,
+            SendNAKS,
+            RecvNAKS
+        }
+
         /// <summary>
         /// Main thread to host the client process.
         /// </summary>
@@ -90,6 +109,9 @@ namespace WellDunne.LanCaster
                     ctl.Identity = new byte[1] { (byte)'@' }.Concat(myIdentity.ToByteArray()).ToArray();
 
                     Thread.Sleep(500);
+
+                    // First state is SendJOIN.
+                    // TODO!
 
                     // Send a JOIN request:
                     ctl.SendMore(ctl.Identity);
@@ -150,8 +172,172 @@ namespace WellDunne.LanCaster
                         int ackCount = naks.Cast<bool>().Count(b => !b);
 
                         // Poll for incoming messages on the data SUB socket:
-                        PollItem[] pollItems = new PollItem[1];
+                        PollItem[] pollItems = new PollItem[2];
                         pollItems[0] = data.CreatePollItem(IOMultiPlex.POLLIN);
+                        pollItems[1] = ctl.CreatePollItem(IOMultiPlex.POLLIN | IOMultiPlex.POLLOUT);
+
+                        ZMQStateMasheen<DataSUBState> dataFSM;
+                        ZMQStateMasheen<ControlREQState> controlFSM;
+                        Queue<ControlREQState> controlStateQueue = new Queue<ControlREQState>();
+
+                        int chunkIdx = -1;
+
+                        // We create a state machine to handle our send/recv state:
+                        dataFSM = new ZMQStateMasheen<DataSUBState>(
+                            // Set the initial state:
+                            DataSUBState.Recv,
+                            // Initial state handler:
+                            new ZMQStateMasheen<DataSUBState>.State(DataSUBState.Recv, (sock, revents) =>
+                            {
+                                Queue<byte[]> packet = sock.RecvAll();
+
+                                string sub = Encoding.Unicode.GetString(packet.Dequeue());
+                                string cmd = Encoding.Unicode.GetString(packet.Dequeue());
+
+                                if (cmd == "DATA")
+                                {
+                                    chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
+
+                                    // Already received this chunk?
+                                    if (!naks[chunkIdx])
+                                    {
+                                        trace("ALREADY RECV {0}", chunkIdx);
+                                        return DataSUBState.Recv;
+                                    }
+
+                                    trace("RECV {0}", chunkIdx);
+
+                                    byte[] chunk = packet.Dequeue();
+                                    if (!testMode)
+                                    {
+                                        tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
+                                        tarball.Write(chunk, 0, chunk.Length);
+                                    }
+                                    chunk = null;
+
+                                    naks[chunkIdx] = false;
+                                    ++ackCount;
+                                    // Notify the host that a chunk was written:
+                                    if (ChunkWritten != null) ChunkWritten(chunkIdx);
+
+                                    controlStateQueue.Enqueue(ControlREQState.SendACK);
+                                    return DataSUBState.Recv;
+                                }
+                                else if (cmd == "PING")
+                                {
+                                    controlStateQueue.Enqueue(ControlREQState.SendALIVE);
+                                    return DataSUBState.Recv;
+                                }
+                                else
+                                {
+                                    controlStateQueue.Enqueue(ControlREQState.SendUNKNOWN);
+                                    return DataSUBState.Recv;
+                                }
+                            })
+                        );
+
+                        // We create a state machine to handle our send/recv state:
+                        controlFSM = new ZMQStateMasheen<ControlREQState>(
+                            ControlREQState.SendJOIN,
+                            new ZMQStateMasheen<ControlREQState>.State(ControlREQState.Nothing, (sock, revents) =>
+                            {
+                                if (controlStateQueue.Count > 0) return controlStateQueue.Dequeue();
+                                return ControlREQState.Nothing;
+                            }),
+                            new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendALIVE, (sock, revents) =>
+                            {
+                                if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
+
+                                ctl.SendMore(ctl.Identity);
+                                ctl.Send("ALIVE", Encoding.Unicode);
+                                return ControlREQState.RecvALIVE;
+                            }),
+                            new ZMQStateMasheen<ControlREQState>.State(ControlREQState.RecvALIVE, (sock, revents) =>
+                            {
+                                if ((revents & IOMultiPlex.POLLIN) != IOMultiPlex.POLLIN) return ControlREQState.Nothing;
+
+                                Queue<byte[]> packet = ctl.RecvAll();
+
+                                string cmd = Encoding.Unicode.GetString(packet.Dequeue());
+                                trace("Server: '{0}'", cmd);
+
+                                if (cmd == "") return ControlREQState.Nothing;
+                                else if (cmd == "WHOAREYOU") return ControlREQState.SendJOIN;
+
+                                return ControlREQState.Nothing;
+                            }),
+                            new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendJOIN, (sock, revents) =>
+                            {
+                                if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
+
+                                // Send a JOIN request:
+                                ctl.SendMore(ctl.Identity);
+                                ctl.Send("JOIN", Encoding.Unicode);
+
+                                return ControlREQState.RecvJOIN;
+                            }),
+                            new ZMQStateMasheen<ControlREQState>.State(ControlREQState.RecvJOIN, (sock, revents) =>
+                            {
+                                if ((revents & IOMultiPlex.POLLIN) != IOMultiPlex.POLLIN) return ControlREQState.Nothing;
+
+                                Queue<byte[]> packet = ctl.RecvAll();
+                                string resp = Encoding.Unicode.GetString(packet.Dequeue());
+                                if (resp != "JOINED")
+                                {
+                                    //Console.WriteLine("Fail!");
+                                    return ControlREQState.Nothing;
+                                }
+
+                                return ControlREQState.SendNAKS;
+                            }),
+                            new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendNAKS, (sock, revents) =>
+                            {
+                                if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
+
+                                // Send our NAKs:
+                                ctl.SendMore(ctl.Identity);
+                                ctl.SendMore("NAKS", Encoding.Unicode);
+                                nakBuf = new byte[numBytes];
+                                naks.CopyTo(nakBuf, 0);
+                                trace("CTL2 SEND NAK");
+                                ctl.Send(nakBuf);
+                                nakBuf = null;
+
+                                return ControlREQState.RecvNAKS;
+                            }),
+                            new ZMQStateMasheen<ControlREQState>.State(ControlREQState.RecvNAKS, (sock, revents) =>
+                            {
+                                if ((revents & IOMultiPlex.POLLIN) != IOMultiPlex.POLLIN) return ControlREQState.Nothing;
+
+                                Queue<byte[]> packet = ctl.RecvAll();
+
+                                return ControlREQState.Nothing;
+                            }),
+                            new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendACK, (sock, revents) =>
+                            {
+                                if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
+
+                                // Send a ACK packet to the control socket:
+                                ctl.SendMore(ctl.Identity);
+                                ctl.SendMore("ACK", Encoding.Unicode);
+                                ctl.Send(BitConverter.GetBytes(chunkIdx));
+
+                                return ControlREQState.RecvACK;
+                            }),
+                            new ZMQStateMasheen<ControlREQState>.State(ControlREQState.RecvACK, (sock, revents) =>
+                            {
+                                if ((revents & IOMultiPlex.POLLIN) != IOMultiPlex.POLLIN) return ControlREQState.Nothing;
+
+                                ctl.RecvAll();
+                                return ControlREQState.Nothing;
+                            })
+                        );
+
+                        pollItems[0].PollInHandler += new PollHandler(dataFSM.StateMasheen);
+                        pollItems[1].PollInHandler += new PollHandler(controlFSM.StateMasheen);
+                        pollItems[1].PollOutHandler += new PollHandler(controlFSM.StateMasheen);
+
+#if false
                         pollItems[0].PollInHandler += new PollHandler((Socket sock, IOMultiPlex mp) =>
                         {
                             // Receive a message on the data socket:
@@ -267,6 +453,7 @@ namespace WellDunne.LanCaster
 
                             packet = null;
                         });
+#endif
 
                         DateTimeOffset lastRecv = DateTimeOffset.UtcNow;
 
