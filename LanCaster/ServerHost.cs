@@ -25,7 +25,7 @@ namespace WellDunne.LanCaster
         private ushort port;
         private string device;
 
-        public ServerHost(string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize, int queueBacklog)
+        public ServerHost(string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize, int queueBacklog, ulong hwm)
         {
             if (String.IsNullOrEmpty(endpoint)) throw new ArgumentNullException("endpoint");
             if (String.IsNullOrEmpty(subscription)) throw new ArgumentNullException("subscription");
@@ -54,13 +54,7 @@ namespace WellDunne.LanCaster
                 UInt16.TryParse(endpoint.Substring(idx + 1), out port);
             }
 
-            string hwmValue = ConfigurationManager.AppSettings["HWM"];
-            ulong tmphwm = 128;
-            if (hwmValue != null)
-            {
-                UInt64.TryParse(hwmValue, out tmphwm);
-            }
-            this.hwm = tmphwm;
+            this.hwm = hwm;
         }
 
         public int NumChunks { get { return this.numChunks; } }
@@ -489,7 +483,7 @@ namespace WellDunne.LanCaster
                         }
 
                         // Don't send faster than our fastest receiver can receive:
-                        if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute > maxACKsPerMinute))
+                        if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute >= (maxACKsPerMinute * 1200 / 1000)))
                         {
                             Thread.Sleep(20);
                             continue;

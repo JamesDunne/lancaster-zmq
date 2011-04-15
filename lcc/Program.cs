@@ -29,6 +29,7 @@ namespace WellDunne.LanCaster.Client
                 string endpoint = "*";
                 string subscription = String.Empty;
                 int tmp;
+                ulong hwm = 32UL;
                 ioThreads = 1;
 
                 Queue<string> argQueue = new Queue<string>(args);
@@ -69,13 +70,21 @@ namespace WellDunne.LanCaster.Client
                         case "-n":
                             if (argQueue.Count == 0)
                             {
-                                Console.Error.WriteLine("-s expects a subscription name argument");
+                                Console.Error.WriteLine("-n expects a number of I/O threads argument");
                                 return;
                             }
                             if (Int32.TryParse(argQueue.Dequeue(), out tmp))
                             {
                                 ioThreads = tmp;
                             }
+                            break;
+                        case "-w":
+                            if (argQueue.Count == 0)
+                            {
+                                Console.Error.WriteLine("-w expects a high-water mark argument");
+                                return;
+                            }
+                            UInt64.TryParse(argQueue.Dequeue(), out hwm);
                             break;
                         case "-?":
                             DisplayUsage();
@@ -102,7 +111,7 @@ namespace WellDunne.LanCaster.Client
                 }
 
                 // Create the client:
-                var client = new LanCaster.ClientHost(endpoint, subscription, downloadDirectory, testMode, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState));
+                var client = new LanCaster.ClientHost(endpoint, subscription, downloadDirectory, testMode, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState), hwm);
                 client.ChunkWritten += new Action<ClientHost, int>(ChunkWritten);
 
                 // Start the client thread and wait for it to complete:
@@ -345,6 +354,7 @@ new[] { @"-d <path>",           @"(REQUIRED) Download files to local directory (
 new[] { @"-s <subscription>",   @"Set subscription name to filter out transfers from other servers on the same endpoint. Default is empty." },
 new[] { @"-t",                  @"Test mode - don't write to filesystem, just act as a dummy client." },
 new[] { @"-n <io threads>",     @"Set this value to the number of threads you wish 0MQ to dedicate to network I/O. Default is 1." },
+new[] { @"-w <hwm>",            @"Set the high-water mater (HWM) which is the maximum number of chunks 0MQ will queue before dropping them. Default is 32." },
             };
 
             // Displays the error text wrapped to the console's width:

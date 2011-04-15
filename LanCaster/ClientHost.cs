@@ -26,7 +26,7 @@ namespace WellDunne.LanCaster
 
         public delegate BitArray GetClientNAKStateDelegate(ClientHost host, int numChunks, int chunkSize, TarballStreamReader tarball);
 
-        public ClientHost(string endpoint, string subscription, DirectoryInfo downloadDirectory, bool testMode, GetClientNAKStateDelegate getClientState)
+        public ClientHost(string endpoint, string subscription, DirectoryInfo downloadDirectory, bool testMode, GetClientNAKStateDelegate getClientState, ulong hwm)
         {
             this.endpoint = endpoint;
             this.subscription = subscription;
@@ -45,13 +45,7 @@ namespace WellDunne.LanCaster
                 UInt16.TryParse(endpoint.Substring(idx + 1), out port);
             }
 
-            string hwmValue = ConfigurationManager.AppSettings["HWM"];
-            ulong tmphwm = 16;
-            if (hwmValue != null)
-            {
-                UInt64.TryParse(hwmValue, out tmphwm);
-            }
-            this.hwm = tmphwm;
+            this.hwm = hwm;
         }
 
         private GetClientNAKStateDelegate getClientState;
