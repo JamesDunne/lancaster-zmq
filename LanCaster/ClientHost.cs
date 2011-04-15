@@ -223,7 +223,15 @@ namespace WellDunne.LanCaster
                                     tmpControlState = msg.Object;
                                     return msg.NewState;
                                 }
-                                
+
+                                // If we ran up the count or the timer, send more ACKs:
+                                if ((runningACKs.Count >= 128) || (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 250d))
+                                {
+                                    lastSentACKs = DateTimeOffset.UtcNow;
+                                    controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, new List<int>(runningACKs)));
+                                    runningACKs.Clear();
+                                }
+
                                 // A dummy OUT event? We don't have anything to send, so just sleep:
                                 if ((revents & IOMultiPlex.POLLOUT) == IOMultiPlex.POLLOUT) Thread.Sleep(20);
                                 return ControlREQState.Nothing;

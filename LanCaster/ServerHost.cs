@@ -218,7 +218,7 @@ namespace WellDunne.LanCaster
                                 int numIdxs = BitConverter.ToInt32(request.Dequeue(), 0);
 
                                 int[] nakChunkIdxs = new int[numIdxs];
-                                
+
                                 byte[] idxBytes = request.Dequeue();
                                 if (idxBytes.Length != (numIdxs * 4))
                                 {
@@ -485,43 +485,54 @@ namespace WellDunne.LanCaster
                             notAwaiting = (!awaitingClientACKs.ContainsKey(chunkIdx.Value) || (awaitingClientACKs[chunkIdx.Value].Count == 0));
                         }
 
-                        if (notAwaiting)
+                        if (!notAwaiting)
                         {
-                            // Chunk index first:
-                            trace("SEND chunk: {0}", chunkIdx.Value);
-                            data.SendMore(this.subscription, Encoding.Unicode);
-                            data.SendMore("DATA", Encoding.Unicode);
-                            data.SendMore(BitConverter.GetBytes(chunkIdx.Value));
+                            Thread.Sleep(20);
+                            continue;
+                        }
 
-                            // Chunk size:
-                            tarball.Seek((long)chunkIdx.Value * chunkSize, SeekOrigin.Begin);
-                            int currChunkSize = tarball.Read(buf, 0, chunkSize);
-                            if (currChunkSize < chunkSize)
+                        // Chunk index first:
+                        trace("SEND chunk: {0}", chunkIdx.Value);
+                        data.SendMore(this.subscription, Encoding.Unicode);
+                        data.SendMore("DATA", Encoding.Unicode);
+                        data.SendMore(BitConverter.GetBytes(chunkIdx.Value));
+
+                        // Chunk size:
+                        tarball.Seek((long)chunkIdx.Value * chunkSize, SeekOrigin.Begin);
+                        int currChunkSize = tarball.Read(buf, 0, chunkSize);
+                        if (currChunkSize < chunkSize)
+                        {
+                            // Copy to an exact-sized temporary buffer for the last uneven sized chunk:
+                            byte[] tmpBuf = new byte[currChunkSize];
+                            Array.Copy(buf, tmpBuf, currChunkSize);
+                            data.Send(tmpBuf);
+                            tmpBuf = null;
+                        }
+                        else
+                        {
+                            // Send the exact-sized chunk:
+                            data.Send(buf);
+                        }
+
+                        if (ChunkSent != null) ChunkSent(this, chunkIdx.Value);
+                        trace("COMPLETE chunk: {0}", chunkIdx.Value);
+
+                        lock (clientLock)
+                        {
+                            // Wait for an ACK from all the clients who have this chunk currently NAKed:
+                            if (!awaitingClientACKs.ContainsKey(chunkIdx.Value))
                             {
-                                // Copy to an exact-sized temporary buffer for the last uneven sized chunk:
-                                byte[] tmpBuf = new byte[currChunkSize];
-                                Array.Copy(buf, tmpBuf, currChunkSize);
-                                data.Send(tmpBuf);
-                                tmpBuf = null;
+                                awaitingClientACKs[chunkIdx.Value] = new HashSet<Guid>();
                             }
                             else
                             {
-                                // Send the exact-sized chunk:
-                                data.Send(buf);
+                                awaitingClientACKs[chunkIdx.Value].Clear();
                             }
 
-                            if (ChunkSent != null) ChunkSent(this, chunkIdx.Value);
-                            trace("COMPLETE chunk: {0}", chunkIdx.Value);
-
-                            lock (clientLock)
+                            foreach (var cli in clients.Values.Where(x => x.NAK[chunkIdx.Value]))
                             {
-                                // Wait for an ACK from all the clients who have this chunk currently NAKed:
-                                awaitingClientACKs[chunkIdx.Value] = new HashSet<Guid>();
-                                foreach (var cli in clients.Values.Where(x => x.NAK[chunkIdx.Value]))
-                                {
-                                    trace("Awaiting ACK from {0} for chunk {1}", cli.Identity.ToString(), chunkIdx.Value);
-                                    awaitingClientACKs[chunkIdx.Value].Add(cli.Identity);
-                                }
+                                //trace("Awaiting ACK from {0} for chunk {1}", cli.Identity.ToString(), chunkIdx.Value);
+                                awaitingClientACKs[chunkIdx.Value].Add(cli.Identity);
                             }
                         }
                     }
