@@ -221,7 +221,10 @@ namespace WellDunne.LanCaster
 
                                 lock (host.clientLock)
                                 {
-                                    host.awaitingClientACKs[nakChunkIdx].Remove(clientIdentity);
+                                    if (host.awaitingClientACKs.ContainsKey(nakChunkIdx))
+                                    {
+                                        host.awaitingClientACKs[nakChunkIdx].Remove(clientIdentity);
+                                    }
                                 }
                                 if (host.ChunkACKed != null) host.ChunkACKed(host, nakChunkIdx);
                                 break;
@@ -315,7 +318,7 @@ namespace WellDunne.LanCaster
 
                     while (host.isRunning)
                     {
-                        while (ctx.Poll(pollItems, 100L) == 1)
+                        while (ctx.Poll(pollItems, 100000L) == 1)
                         {
                         }
                     }
@@ -348,7 +351,7 @@ namespace WellDunne.LanCaster
 
                     var controlHandler = new ControlHandler(this);
                     var controlHandlerThread = new Thread(new ParameterizedThreadStart(controlHandler.Run));
-                    controlHandlerThread.Start();
+                    controlHandlerThread.Start(new object[] { ctx, this });
 
                     // Wait for the sockets to bind:
                     Thread.Sleep(500);
@@ -364,7 +367,7 @@ namespace WellDunne.LanCaster
                     // Begin the data delivery loop:
                     while (true)
                     {
-                        // Poll the DATA socket to see if it's ready to send:
+                        // Wait until the data socket is ready to send on:
                         while (ctx.Poll(pollItems) == 0)
                         {
                         }
@@ -401,12 +404,11 @@ namespace WellDunne.LanCaster
                         // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least `queueBacklog` chunks:
                         if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= queueBacklog)
                         {
-                            trace("Still awaiting ACKs on {0} packets", awaitingClientACKs.Count);
+                            //trace("Still awaiting ACKs on {0} packets", awaitingClientACKs.Count);
                             continue;
                         }
 
                         // Find the next best chunk to send:
-
 #if true
                         lock (clientLock)
                         {
@@ -452,15 +454,22 @@ namespace WellDunne.LanCaster
                         }
 #endif
 
+                        if (!chunkIdx.HasValue)
+                        {
+                            // FIXME:
+                            Thread.Sleep(20);
+                            continue;
+                        }
+
                         // Send the current chunk:
                         // FIXME: timeouts on await!
-                        bool notAwaiting;
+                        bool notAwaiting = true;
                         lock (clientLock)
                         {
                             notAwaiting = (!awaitingClientACKs.ContainsKey(chunkIdx.Value) || (awaitingClientACKs[chunkIdx.Value].Count == 0));
                         }
 
-                        if (chunkIdx.HasValue && notAwaiting)
+                        if (notAwaiting)
                         {
                             // Chunk index first:
                             trace("SEND chunk: {0}", chunkIdx.Value);
