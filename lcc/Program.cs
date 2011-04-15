@@ -222,11 +222,14 @@ namespace WellDunne.LanCaster.Client
             // Acknowledge the chunk is received:
             acks[chunkIdx] = true;
 
-            // Update the state file:
-            acks.CopyTo(ackBuf, 0);
-            localStateStream.Seek(0L, SeekOrigin.Begin);
-            localStateStream.Write(ackBuf, 0, ackBuf.Length);
-            localStateStream.Flush();
+            if (!testMode)
+            {
+                // Update the state file:
+                acks.CopyTo(ackBuf, 0);
+                localStateStream.Seek(0L, SeekOrigin.Begin);
+                localStateStream.Write(ackBuf, 0, ackBuf.Length);
+                localStateStream.Flush();
+            }
 
             lastWrittenChunk = chunkIdx;
 

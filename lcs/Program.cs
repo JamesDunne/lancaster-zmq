@@ -204,6 +204,8 @@ namespace WellDunne.LanCaster.Server
 
                 server.ChunkSent += new Action<ServerHost, int>(ChunkSent);
                 server.ChunkACKed += new Action<ServerHost, int>(ChunkACKed);
+                server.ClientJoined += new Action<ServerHost, Guid>(ClientJoined);
+                server.ClientLeft += new Action<ServerHost, Guid, ServerHost.ClientLeaveReason>(ClientLeft);
 
                 // Begin the server thread:
                 var serverThread = new Thread(server.Run);
@@ -213,6 +215,16 @@ namespace WellDunne.LanCaster.Server
                     serverThread.Join();
                 }
             }
+        }
+
+        void ClientLeft(ServerHost host, Guid id, ServerHost.ClientLeaveReason reason)
+        {
+            RenderProgress(host, true);
+        }
+
+        void ClientJoined(ServerHost host, Guid id)
+        {
+            RenderProgress(host, true);
         }
 
         private int lastChunkBlock = -1;
