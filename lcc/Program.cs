@@ -20,6 +20,7 @@ namespace WellDunne.LanCaster.Client
         private FileStream localStateStream;
         private DirectoryInfo downloadDirectory;
         private bool testMode;
+        private int ioThreads;
 
         void Run(string[] args)
         {
@@ -27,6 +28,8 @@ namespace WellDunne.LanCaster.Client
             {
                 string endpoint = "*";
                 string subscription = String.Empty;
+                int tmp;
+                ioThreads = 1;
 
                 Queue<string> argQueue = new Queue<string>(args);
                 while (argQueue.Count > 0)
@@ -63,6 +66,17 @@ namespace WellDunne.LanCaster.Client
                         case "-t":
                             testMode = true;
                             break;
+                        case "-n":
+                            if (argQueue.Count == 0)
+                            {
+                                Console.Error.WriteLine("-s expects a subscription name argument");
+                                return;
+                            }
+                            if (Int32.TryParse(argQueue.Dequeue(), out tmp))
+                            {
+                                ioThreads = tmp;
+                            }
+                            break;
                         case "-?":
                             DisplayUsage();
                             return;
@@ -77,11 +91,15 @@ namespace WellDunne.LanCaster.Client
                     return;
                 }
 
-                downloadDirectory.Create();
+                if (!testMode)
+                {
+                    // Create the local download directory:
+                    downloadDirectory.Create();
 
-                // Create a local state directory:
-                lccDir = downloadDirectory.CreateSubdirectory(".lcc");
-                localStateFile = new FileInfo(Path.Combine(lccDir.FullName, ".chunks"));
+                    // Create a local state directory:
+                    lccDir = downloadDirectory.CreateSubdirectory(".lcc");
+                    localStateFile = new FileInfo(Path.Combine(lccDir.FullName, ".chunks"));
+                }
 
                 // Create the client:
                 var client = new LanCaster.ClientHost(endpoint, subscription, downloadDirectory, testMode, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState));
@@ -89,7 +107,7 @@ namespace WellDunne.LanCaster.Client
 
                 // Start the client thread and wait for it to complete:
                 var clientThread = new Thread(client.Run);
-                using (Context ctx = new Context(1))
+                using (Context ctx = new Context(ioThreads))
                 {
                     clientThread.Start(ctx);
                     clientThread.Join();
@@ -100,9 +118,12 @@ namespace WellDunne.LanCaster.Client
                     // Clean up our download state on successful completion:
                     Console.WriteLine();
                     Console.WriteLine("Successful completion.");
-                    if (localStateStream != null) localStateStream.Close();
-                    localStateFile.Delete();
-                    lccDir.Delete(true);
+                    if (!testMode)
+                    {
+                        if (localStateStream != null) localStateStream.Close();
+                        localStateFile.Delete();
+                        lccDir.Delete(true);
+                    }
                 }
                 else
                 {
@@ -250,37 +271,40 @@ namespace WellDunne.LanCaster.Client
             int numChunkBytes = ((numChunks + 7) & ~7) >> 3;
             ackBuf = new byte[numChunkBytes];
 
-            localStateFile.Refresh();
-            if (localStateFile.Exists)
+            if (!testMode)
             {
-                if (localStateStream != null)
+                localStateFile.Refresh();
+                if (localStateFile.Exists)
                 {
-                    localStateStream.Close();
+                    if (localStateStream != null)
+                    {
+                        localStateStream.Close();
+                    }
+                    localStateStream = localStateFile.Open(FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+                    if (localStateStream.Length != numChunkBytes)
+                    {
+                        localStateStream.Close();
+                        Console.Error.WriteLine("Inconsistent state file. Overwriting with new state.");
+                        localStateFile.Delete();
+                        localStateFile.Refresh();
+                    }
+                    else
+                    {
+                        // Read the NAK state:
+                        localStateStream.Seek(0L, SeekOrigin.Begin);
+                        localStateStream.Read(ackBuf, 0, numChunkBytes);
+                    }
                 }
-                localStateStream = localStateFile.Open(FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
-                if (localStateStream.Length != numChunkBytes)
-                {
-                    localStateStream.Close();
-                    Console.Error.WriteLine("Inconsistent state file. Overwriting with new state.");
-                    localStateFile.Delete();
-                    localStateFile.Refresh();
-                }
-                else
-                {
-                    // Read the NAK state:
-                    localStateStream.Seek(0L, SeekOrigin.Begin);
-                    localStateStream.Read(ackBuf, 0, numChunkBytes);
-                }
-            }
 
-            localStateFile.Refresh();
-            if (!localStateFile.Exists)
-            {
-                // Create a new file and allocate enough space for storing a NAK bit array:
-                localStateStream = localStateFile.Open(FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read);
-                localStateStream.SetLength(numChunkBytes);
-                localStateStream.Seek(0L, SeekOrigin.Begin);
-                localStateStream.Write(ackBuf, 0, numChunkBytes);
+                localStateFile.Refresh();
+                if (!localStateFile.Exists)
+                {
+                    // Create a new file and allocate enough space for storing a NAK bit array:
+                    localStateStream = localStateFile.Open(FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read);
+                    localStateStream.SetLength(numChunkBytes);
+                    localStateStream.Seek(0L, SeekOrigin.Begin);
+                    localStateStream.Write(ackBuf, 0, numChunkBytes);
+                }
             }
 
             acks = new BitArray(ackBuf);
@@ -297,6 +321,8 @@ namespace WellDunne.LanCaster.Client
                     (
                         from line in new string[] {
 @"lcc.exe <options> ...",
+@"",
+@"LanCaster Client - A multicast file transfer client",
 @"Version " + System.Reflection.Assembly.GetEntryAssembly().GetName().Version.ToString(4),
 @"(C)opyright 2011 James S. Dunne <lancaster@bittwiddlers.org>",
                         }
@@ -314,10 +340,11 @@ namespace WellDunne.LanCaster.Client
 
             string[][] prms = new string[][] {
 new[] { @"" },
-new[] { @"-e <endpoint>",       @"Connect to a server at the given address. Optionally add a ':' and port number to specify a custom port number, default port is 12198." },
-new[] { @"-d <path>",           @"Download files to local directory (will be created if it doesn't exist)." },
+new[] { @"-e <endpoint>",       @"(REQUIRED) Connect to a server at the given address. Optionally add a ':' and port number to specify a custom port number, default port is 12198." },
+new[] { @"-d <path>",           @"(REQUIRED) Download files to local directory (will be created if it doesn't exist)." },
 new[] { @"-s <subscription>",   @"Set subscription name to filter out transfers from other servers on the same endpoint. Default is empty." },
 new[] { @"-t",                  @"Test mode - don't write to filesystem, just act as a dummy client." },
+new[] { @"-n <io threads>",     @"Set this value to the number of threads you wish 0MQ to dedicate to network I/O. Default is 1." },
             };
 
             // Displays the error text wrapped to the console's width:

@@ -375,6 +375,7 @@ namespace WellDunne.LanCaster
 #endif
 
                         // Send the current chunk:
+                        // FIXME: timeouts on await!
                         if (chunkIdx.HasValue && (!awaitingClientACKs.ContainsKey(chunkIdx.Value) || (awaitingClientACKs[chunkIdx.Value].Count == 0)))
                         {
                             // Chunk index first:

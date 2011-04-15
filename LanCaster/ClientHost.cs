@@ -117,6 +117,7 @@ namespace WellDunne.LanCaster
                     int ackCount = -1;
                     byte[] nakBuf = null;
 
+                    try
                     {
                         // Poll for incoming messages on the data SUB socket:
                         PollItem[] pollItems = new PollItem[2];
@@ -263,7 +264,7 @@ namespace WellDunne.LanCaster
 
                                 // Create the tarball reader that writes the files locally:
                                 tarball = new TarballStreamReader(downloadDirectory, tbes);
-                                
+
                                 // Get our local download state:
                                 naks = getClientState(this, numChunks, chunkSize, tarball);
                                 ackCount = naks.Cast<bool>().Count(b => !b);
@@ -341,10 +342,15 @@ namespace WellDunne.LanCaster
                             }
                         }
 
+                        // FIXME: this can be the wrong time to attempt Send.
                         ctl.SendMore(ctl.Identity);
                         ctl.Send("LEAVE", Encoding.Unicode);
 
                         ctl.RecvAll(10000);
+                    }
+                    finally
+                    {
+                        if (tarball != null) tarball.Dispose();
                     }
                 }
                 finally

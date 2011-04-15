@@ -10,13 +10,19 @@ NOTES
 -----
 The client LCC stores a local state-tracking folder in the download folder named '.lcc'. This simply keeps track of which chunks of the transfer have been received and which have not in case of an early termination of the client. When the transfer completes successfully, the folder is deleted so as to not dirty the download.
 
+TUNING PARAMETERS
+-----------------
+The LCS server gives you a couple of options to tune in order to gain performance. The -c <chunk size> should be set to something reasonably large like 1048576 (1 MB) or possibly larger, but I wouldn't go too high unless you think your network can handle very large sustained packet transfer. As a general guideline, I wouldn't recommend setting it any higher than 8388608 (8MB). The -q <queue backlog> is how many chunks of the specified chunk size (-c option) are queued up into memory from off the disk. Large values upwards of 256 can help your disk achieve high sustained transfer rates and can help improve throughput. There is an impact in memory usage for your server process, so watch that and tune this value accordingly. If you feel you can dedicate 1GB or more of memory, try using higher -q values like 1024. In general, multiply the -q value by the -c value for a reasonable expected maximum amount of memory to be allocated.
+
+Don't forget that your network has a limitation on its raw transmission rate. For a gigabit network, that limit is somewhere around 80 MB/sec. Keep this in mind before you go too crazy setting the -c and -q values on the server.
+
 TODO
 ----
-GUI tools for client and server.
+Switch from TCP to EPGM protocol for multicast network efficiency. The Windows build of libzmq does not include EPGM support by default, and doing so does not look simple nor easy at the moment.
+GUI tools for client and server once protocol is stabilized and proven, and once EPGM is implemented and thoroughly tested.
 Possibly SHA1 hash verification per file, but hash mismatches between client/server would only indicate presence of bugs in the client/server code. ZeroMQ guarantees complete message delivery or no message at all. I doubt there'd be any data loss to warrant such SHA1 hash calculations.
 Packaging of transfers into uniquely-identifiable objects, much like a torrent. This would help clients uniquely identify a transfer, which transfers have completed.
 A daemon mode for the client to auto-accept transfers and download them to known locations - ideal for server farm deployments.
-Switch from TCP to EPGM protocol for multicast network efficiency. The Windows build of libzmq does not include EPGM support by default, and doing so does not look simple nor easy at the moment.
 
 TROUBLESHOOTING
 ---------------

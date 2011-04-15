@@ -29,15 +29,11 @@ namespace WellDunne.LanCaster.Server
             HashSet<string> ignoreFiles = new HashSet<string>();
             HashSet<string> ignoreExtensions = new HashSet<string>();
             bool listFiles = false;
-            int queueBacklog = 20;
 
-            // Set default chunk size:
-            int chunkSize = 128 * 1024;
-
-            // Override with config value if exists:
-            string chunkSizeValue = ConfigurationManager.AppSettings["ChunkSize"];
-            if (chunkSizeValue != null)
-                Int32.TryParse(chunkSizeValue, out chunkSize);
+            // Set default chunk size to 1MB:
+            int chunkSize = 1024 * 1024;
+            int queueBacklog = 128;
+            int ioThreads = 1;
 
             Queue<string> argQueue = new Queue<string>(args);
             while (argQueue.Count > 0)
@@ -99,8 +95,8 @@ namespace WellDunne.LanCaster.Server
                             Console.Error.WriteLine("-b expects a path argument");
                             return;
                         }
-                        string tmp = argQueue.Dequeue();
-                        baseDir = new DirectoryInfo(tmp);
+                        string tmpS = argQueue.Dequeue();
+                        baseDir = new DirectoryInfo(tmpS);
                         if (!baseDir.Exists)
                         {
                             Console.Error.WriteLine("Directory '{0}' does not exist!", baseDir.FullName);
@@ -170,6 +166,14 @@ namespace WellDunne.LanCaster.Server
                         // Override the config with the commandline arg if it can be parsed:
                         Int32.TryParse(argQueue.Dequeue(), out queueBacklog);
                         break;
+                    case "-n":
+                        if (argQueue.Count == 0)
+                        {
+                            Console.Error.WriteLine("-s expects a subscription name argument");
+                            return;
+                        }
+                        Int32.TryParse(argQueue.Dequeue(), out ioThreads);
+                        break;
                     case "-?":
                         DisplayUsage();
                         return;
@@ -219,7 +223,7 @@ namespace WellDunne.LanCaster.Server
 
                 // Begin the server thread:
                 var serverThread = new Thread(server.Run);
-                using (Context ctx = new Context(1))
+                using (Context ctx = new Context(ioThreads))
                 {
                     serverThread.Start(ctx);
                     serverThread.Join();
@@ -362,6 +366,8 @@ namespace WellDunne.LanCaster.Server
                     (
                         from line in new string[] {
 @"lcs.exe <options> ...",
+@"",
+@"LanCaster Server - A multicast file transfer server",
 @"Version " + System.Reflection.Assembly.GetEntryAssembly().GetName().Version.ToString(4),
 @"(C)opyright 2011 James S. Dunne <lancaster@bittwiddlers.org>",
                         }
@@ -380,14 +386,15 @@ namespace WellDunne.LanCaster.Server
             string[][] prms = new string[][] {
 new[] { @"" },
 new[] { @"-s <identity>",       @"(REQUIRED) Set identity name; helps clients reconnect if the server dies or is aborted and restarted." },
+new[] { @"-d <path>",           @"(REQUIRED) Add files from directory to upload. Can specify multiple -d options." },
 new[] { @"-e <endpoint>",       @"Listen for clients on the given 0MQ endpoint. '*' is all network interfaces, or provide a specific network interface's primary IPv4 address. Add a ':' and port number to specify a custom port number, default port is 12198. Default value is '*'." },
 new[] { @"-b <path>",           @"Set base path of upload (all directories must be beneath this folder)" },
 new[] { @"-i <path>",           @"Read the file at <path> for a listing of filenames, paths, and extensions (e.g. '*.txt') to ignore (applies to next -d options)" },
 new[] { @"-r",                  @"Set recursive mode (applies to following -d options). Default mode." },
 new[] { @"-R",                  @"Set nonrecursive mode (applies to following -d options)." },
-new[] { @"-d <path>",           @"(REQUIRED) Add files from directory to upload. Can specify multiple -d options." },
-new[] { @"-c <chunk size>",     @"Set the chunk size in bytes to use for dividing up the files into chunks. Larger values are better for faster networks. Recommend keeping it under 1048576. Default is 131072 (128 KB)" },
-new[] { @"-q <queue backlog>",  @"Set the server transmission queue backlog length (number of chunks)." },
+new[] { @"-c <chunk size>",     @"Set the chunk size in bytes to use for dividing up the files into chunks. Larger values are better for faster networks. Recommend keeping it under 8388608 (8 MB). Default is 1048576 (1 MB)" },
+new[] { @"-q <queue backlog>",  @"Set the server transmission queue backlog length (number of chunks). Default is 128 chunks." },
+new[] { @"-n <io threads>",     @"Set this value to the number of threads you wish 0MQ to dedicate to network I/O. Default is 1." },
             };
 
             // Displays the error text wrapped to the console's width:
