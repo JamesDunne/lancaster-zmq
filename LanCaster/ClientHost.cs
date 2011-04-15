@@ -109,7 +109,7 @@ namespace WellDunne.LanCaster
                         ctl.HWM = UInt64.Parse(hwmValue);
                     }
 
-                    data.RcvBuf = 256 * 1024 * 20L;
+                    data.RcvBuf = 1048576UL * 128UL * 2UL;
                     data.Connect("tcp://" + addr + ":" + port.ToString());
                     data.Subscribe(subscription, Encoding.Unicode);
 
@@ -186,7 +186,7 @@ namespace WellDunne.LanCaster
                                     runningACKs.Add(chunkIdx);
 
                                     // If we ran up the count or the timer, send more ACKs:
-                                    if ((runningACKs.Count >= 128) || (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 1000d))
+                                    if ((runningACKs.Count >= 128) || (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 250d))
                                     {
                                         lastSentACKs = DateTimeOffset.UtcNow;
                                         controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, new List<int>(runningACKs)));

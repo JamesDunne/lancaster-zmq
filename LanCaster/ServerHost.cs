@@ -359,7 +359,7 @@ namespace WellDunne.LanCaster
 
                     // TODO: use epgm:// protocol for multicast efficiency when we build that support into libzmq.dll for Windows.
                     //data.Rate = 20000L;
-                    data.SndBuf = (uint)chunkSize * 80UL;
+                    data.SndBuf = (ulong)chunkSize * (ulong)queueBacklog * 2UL;
                     data.StringToIdentity(subscription, Encoding.Unicode);
                     data.Bind("tcp://" + device + ":" + port.ToString());
 
