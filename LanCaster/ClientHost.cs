@@ -59,7 +59,6 @@ namespace WellDunne.LanCaster
             SendJOIN,
             RecvACK,
             RecvJOIN,
-            SendNAKS,
             RecvNAKS
         }
 
@@ -110,67 +109,15 @@ namespace WellDunne.LanCaster
 
                     Thread.Sleep(500);
 
-                    // First state is SendJOIN.
-                    // TODO!
+                    // Begin client logic:
 
-                    // Send a JOIN request:
-                    ctl.SendMore(ctl.Identity);
-                    ctl.Send("JOIN", Encoding.Unicode);
+                    TarballStreamReader tarball = null;
+                    BitArray naks = null;
+                    int numBytes = 0;
+                    int ackCount = 0;
+                    byte[] nakBuf = null;
 
-                    // Process the reply:
-                    trace("ctl.RecvAll for JOIN reply");
-                    Queue<byte[]> reply = ctl.RecvAll();
-
-                    string resp = Encoding.Unicode.GetString(reply.Dequeue());
-
-                    if (resp != "JOINED")
                     {
-                        //Console.WriteLine("Fail!");
-                        return;
-                    }
-
-                    numChunks = BitConverter.ToInt32(reply.Dequeue(), 0);
-                    chunkSize = BitConverter.ToInt32(reply.Dequeue(), 0);
-                    int numFiles = BitConverter.ToInt32(reply.Dequeue(), 0);
-
-                    List<TarballEntry> tbes = new List<TarballEntry>(numFiles);
-                    for (int i = 0; i < numFiles; ++i)
-                    {
-                        string fiName = Encoding.Unicode.GetString(reply.Dequeue());
-                        long length = BitConverter.ToInt64(reply.Dequeue(), 0);
-                        byte[] hash = reply.Dequeue();
-
-                        TarballEntry tbe = new TarballEntry(fiName, length, hash);
-                        tbes.Add(tbe);
-                    }
-
-                    // Create the tarball reader that writes the files locally:
-                    using (var tarball = new TarballStreamReader(downloadDirectory, tbes))
-                    {
-                        // Send a NAK message for all the chunks:
-                        ctl.SendMore(ctl.Identity);
-                        ctl.SendMore("NAKS", Encoding.Unicode);
-
-                        BitArray naks = getClientState(this, numChunks, chunkSize, tarball);
-                        int numBytes = ((numChunks + 7) & ~7) >> 3;
-                        byte[] nakBuf = new byte[numBytes];
-                        naks.CopyTo(nakBuf, 0);
-                        trace("CTL1 SEND NAKS");
-                        ctl.Send(nakBuf);
-                        nakBuf = null;
-
-                        // Wait for the NAK reply:
-                        trace("CTL1 RECV NAKS");
-                        Queue<byte[]> nak1Reply = ctl.RecvAll(10000);
-                        if (nak1Reply == null)
-                        {
-                            trace("Timed out waiting for server reply to NAKS");
-                            return;
-                        }
-                        trace("NAKS1 ok");
-
-                        int ackCount = naks.Cast<bool>().Count(b => !b);
-
                         // Poll for incoming messages on the data SUB socket:
                         PollItem[] pollItems = new PollItem[2];
                         pollItems[0] = data.CreatePollItem(IOMultiPlex.POLLIN);
@@ -280,26 +227,50 @@ namespace WellDunne.LanCaster
                             {
                                 if ((revents & IOMultiPlex.POLLIN) != IOMultiPlex.POLLIN) return ControlREQState.Nothing;
 
-                                Queue<byte[]> packet = ctl.RecvAll();
-                                string resp = Encoding.Unicode.GetString(packet.Dequeue());
+                                Queue<byte[]> reply = ctl.RecvAll();
+                                string resp = Encoding.Unicode.GetString(reply.Dequeue());
                                 if (resp != "JOINED")
                                 {
                                     //Console.WriteLine("Fail!");
                                     return ControlREQState.Nothing;
                                 }
 
-                                return ControlREQState.SendNAKS;
-                            }),
-                            new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendNAKS, (sock, revents) =>
-                            {
-                                if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
+                                numChunks = BitConverter.ToInt32(reply.Dequeue(), 0);
+                                numBytes = ((numChunks + 7) & ~7) >> 3;
+                                chunkSize = BitConverter.ToInt32(reply.Dequeue(), 0);
+                                int numFiles = BitConverter.ToInt32(reply.Dequeue(), 0);
+
+                                List<TarballEntry> tbes = new List<TarballEntry>(numFiles);
+                                for (int i = 0; i < numFiles; ++i)
+                                {
+                                    string fiName = Encoding.Unicode.GetString(reply.Dequeue());
+                                    long length = BitConverter.ToInt64(reply.Dequeue(), 0);
+                                    byte[] hash = reply.Dequeue();
+
+                                    TarballEntry tbe = new TarballEntry(fiName, length, hash);
+                                    tbes.Add(tbe);
+                                }
+
+                                if (tarball != null)
+                                {
+                                    tarball.Close();
+                                    tarball.Dispose();
+                                    tarball = null;
+                                }
+
+                                // Create the tarball reader that writes the files locally:
+                                tarball = new TarballStreamReader(downloadDirectory, tbes);
+                                
+                                // Get our local download state:
+                                naks = getClientState(this, numChunks, chunkSize, tarball);
+                                ackCount = naks.Cast<bool>().Count(b => !b);
 
                                 // Send our NAKs:
                                 ctl.SendMore(ctl.Identity);
                                 ctl.SendMore("NAKS", Encoding.Unicode);
                                 nakBuf = new byte[numBytes];
                                 naks.CopyTo(nakBuf, 0);
-                                trace("CTL2 SEND NAK");
+                                trace("SEND NAK");
                                 ctl.Send(nakBuf);
                                 nakBuf = null;
 
@@ -310,6 +281,7 @@ namespace WellDunne.LanCaster
                                 if ((revents & IOMultiPlex.POLLIN) != IOMultiPlex.POLLIN) return ControlREQState.Nothing;
 
                                 Queue<byte[]> packet = ctl.RecvAll();
+                                // Don't care what the response is for now.
 
                                 return ControlREQState.Nothing;
                             }),
