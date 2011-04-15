@@ -85,7 +85,7 @@ namespace WellDunne.LanCaster.Client
 
                 // Create the client:
                 var client = new LanCaster.ClientHost(endpoint, subscription, downloadDirectory, testMode, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState));
-                client.ChunkWritten += new Action<int>(ChunkWritten);
+                client.ChunkWritten += new Action<ClientHost, int>(ChunkWritten);
 
                 // Start the client thread and wait for it to complete:
                 var clientThread = new Thread(client.Run);
@@ -120,10 +120,104 @@ namespace WellDunne.LanCaster.Client
         private BitArray acks;
         private byte[] ackBuf;
 
-        private int chunksWritten = 0;
+        private int lastChunkBlock = -1;
+        private int lastWrittenChunk = 0;
         private bool wroteLegend = false;
 
-        void ChunkWritten(int chunkIdx)
+        void RenderProgress(ClientHost host)
+        {
+            if (numChunks == 0) return;
+
+            int usableWidth = Console.WindowWidth - 3;
+
+            int blocks = numChunks / usableWidth;
+            int blocksRem = numChunks % usableWidth;
+
+            int subblocks = usableWidth / numChunks;
+            int subblocksRem = usableWidth % numChunks;
+
+            bool display = false;
+
+            if (blocks > 0) display = (lastChunkBlock != (lastChunkBlock = lastWrittenChunk / blocks));
+            else display = true;
+
+            if (display)
+            {
+                if (!wroteLegend)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine(" '-' no chunks    '*' some chunks    '#' all chunks    'O' current zone");
+                    Console.WriteLine();
+                    wroteLegend = true;
+                }
+
+                string backup = new string('\b', Console.WindowWidth);
+                Console.Write(backup);
+                Console.Write('[');
+
+                IEnumerator boolACKs = acks.GetEnumerator();
+                if (blocks > 0)
+                {
+                    int lastc = 0, c = 0, subc = 0;
+                    while (c < usableWidth)
+                    {
+                        int numBlocks = blocks;
+                        lastc = c++;
+                        if ((blocksRem > 0) && (subc++ >= blocksRem))
+                        {
+                            ++numBlocks;
+                            ++c;
+                            subc = 0;
+                        }
+
+                        bool allOn = true;
+                        bool allOff = false;
+                        for (int i = 0; (i < numBlocks) && boolACKs.MoveNext(); ++i)
+                        {
+                            bool curr = (bool)boolACKs.Current;
+                            allOn = allOn & curr;
+                            allOff = allOff | curr;
+                        }
+
+                        for (int x = lastc; x < c; ++x)
+                        {
+                            if ((lastWrittenChunk >= c * blocks) && (lastWrittenChunk < (c + 1) * blocks)) Console.Write('O');
+                            else if (allOn) Console.Write('#');
+                            else if (allOff) Console.Write('*');
+                            else Console.Write('-');
+                        }
+                    }
+                }
+                else
+                {
+                    int lastc = 0, c = 0, subc = 0;
+                    for (int i = 0; i < numChunks; ++i)
+                    {
+                        lastc = c;
+                        c += subblocks;
+                        if ((subblocksRem > 0) && (subc++ >= subblocksRem))
+                        {
+                            ++c;
+                            subc = 0;
+                        }
+
+                        if (!boolACKs.MoveNext()) break;
+                        bool curr = (bool)boolACKs.Current;
+
+                        for (int x = lastc; x < c; ++x)
+                        {
+                            if (lastWrittenChunk == i) Console.Write('O');
+                            else if (curr) Console.Write('#');
+                            else Console.Write('-');
+                        }
+                    }
+                }
+
+                Console.Write(']');
+            }
+        }
+
+        void ChunkWritten(ClientHost host, int chunkIdx)
         {
             // Acknowledge the chunk is received:
             acks[chunkIdx] = true;
@@ -134,48 +228,9 @@ namespace WellDunne.LanCaster.Client
             localStateStream.Write(ackBuf, 0, ackBuf.Length);
             localStateStream.Flush();
 
-#if false
-            Console.WriteLine("Wrote chunk {0,13} of {1,13}", (chunkIdx + 1).ToString("##,#"), numChunks.ToString("##,#"));
-#else
-            int blocks = (numChunks / (Console.WindowWidth - 3));
+            lastWrittenChunk = chunkIdx;
 
-            if (chunksWritten != 0)
-            {
-                chunksWritten = (chunksWritten + 1) % blocks;
-                return;
-            }
-            chunksWritten = (chunksWritten + 1) % blocks;
-
-            if (!wroteLegend)
-            {
-                Console.WriteLine();
-                Console.WriteLine(" '-' no chunks    '*' some chunks    '#' all chunks    'O' current zone");
-                Console.WriteLine();
-                wroteLegend = true;
-            }
-
-            string backup = new string('\b', Console.WindowWidth);
-            Console.Write(backup);
-            Console.Write('[');
-
-            IEnumerator boolACKs = acks.GetEnumerator();
-            for (int c = 0; c < Console.WindowWidth - 3; ++c)
-            {
-                bool allOn = true;
-                bool allOff = false;
-                for (int i = 0; boolACKs.MoveNext() && (i < blocks); ++i)
-                {
-                    allOn = allOn & ((bool)boolACKs.Current);
-                    allOff = allOff | ((bool)boolACKs.Current);
-                }
-
-                if ((chunkIdx >= c * blocks) && (chunkIdx < (c + 1) * blocks)) Console.Write('O');
-                else if (allOn) Console.Write('#');
-                else if (allOff) Console.Write('*');
-                else Console.Write('-');
-            }
-            Console.Write(']');
-#endif
+            RenderProgress(host);
         }
 
         BitArray GetClientNAKState(ClientHost host, int numChunks, int chunkSize, TarballStreamReader tarball)

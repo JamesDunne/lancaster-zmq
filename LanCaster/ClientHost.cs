@@ -35,7 +35,7 @@ namespace WellDunne.LanCaster
         }
 
         private GetClientNAKStateDelegate getClientState;
-        public event Action<int> ChunkWritten;
+        public event Action<ClientHost, int> ChunkWritten;
 
         private void trace(string format, params object[] args)
         {
@@ -165,7 +165,7 @@ namespace WellDunne.LanCaster
                                     naks[chunkIdx] = false;
                                     ++ackCount;
                                     // Notify the host that a chunk was written:
-                                    if (ChunkWritten != null) ChunkWritten(chunkIdx);
+                                    if (ChunkWritten != null) ChunkWritten(this, chunkIdx);
 
                                     controlStateQueue.Enqueue(ControlREQState.SendACK);
                                     return DataSUBState.Recv;
@@ -218,6 +218,7 @@ namespace WellDunne.LanCaster
                                 if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
 
                                 // Send a JOIN request:
+                                Console.WriteLine("JOIN");
                                 ctl.SendMore(ctl.Identity);
                                 ctl.Send("JOIN", Encoding.Unicode);
 
@@ -231,7 +232,7 @@ namespace WellDunne.LanCaster
                                 string resp = Encoding.Unicode.GetString(reply.Dequeue());
                                 if (resp != "JOINED")
                                 {
-                                    //Console.WriteLine("Fail!");
+                                    Console.WriteLine("Fail!");
                                     return ControlREQState.Nothing;
                                 }
 

@@ -203,7 +203,7 @@ namespace WellDunne.LanCaster.Server
                 Console.WriteLine("{0,15} chunks @ {1,13} bytes/chunk", server.NumChunks.ToString("##,#"), server.ChunkSize.ToString("##,#"));
 
                 server.ChunkSent += new Action<ServerHost, int>(ChunkSent);
-                server.ChunkACKed += new Action<ServerHost,int>(ChunkACKed);
+                server.ChunkACKed += new Action<ServerHost, int>(ChunkACKed);
 
                 // Begin the server thread:
                 var serverThread = new Thread(server.Run);
@@ -219,16 +219,27 @@ namespace WellDunne.LanCaster.Server
         private bool wroteLegend = false;
         private int lastWrittenChunk = -1;
 
-        void RenderProgress(LanCaster.ServerHost host)
+        void RenderProgress(ServerHost host, bool display)
         {
-            int blocks = host.NumChunks / (Console.WindowWidth - 3);
-            int blocksRem = host.NumChunks % (Console.WindowWidth - 3);
-            int currChunkBlock = lastWrittenChunk / blocks;
+            int numChunks = host.NumChunks;
+            if (numChunks == 0) return;
 
-            if (currChunkBlock != lastChunkBlock)
+            int usableWidth = Console.WindowWidth - 3;
+
+            int blocks = numChunks / usableWidth;
+            int blocksRem = numChunks % usableWidth;
+
+            int subblocks = usableWidth / numChunks;
+            int subblocksRem = usableWidth % numChunks;
+
+            if (!display)
             {
-                lastChunkBlock = currChunkBlock;
+                if (blocks > 0) display = (lastChunkBlock != (lastChunkBlock = lastWrittenChunk / blocks));
+                else display = true;
+            }
 
+            if (display)
+            {
                 if (!wroteLegend)
                 {
                     Console.WriteLine();
@@ -248,20 +259,61 @@ namespace WellDunne.LanCaster.Server
                 }
 
                 IEnumerator boolACKs = naks.GetEnumerator();
-                for (int c = 0; c < Console.WindowWidth - 3; ++c)
+                if (blocks > 0)
                 {
-                    bool allOn = true;
-                    bool allOff = false;
-                    for (int i = 0; boolACKs.MoveNext() && (i < blocks); ++i)
+                    int lastc = 0, c = 0, subc = 0;
+                    while (c < usableWidth)
                     {
-                        allOn = allOn & ((bool)boolACKs.Current);
-                        allOff = allOff | ((bool)boolACKs.Current);
-                    }
+                        int numBlocks = blocks;
+                        lastc = c++;
+                        if ((blocksRem > 0) && (subc++ >= blocksRem))
+                        {
+                            ++numBlocks;
+                            ++c;
+                            subc = 0;
+                        }
 
-                    if ((lastWrittenChunk >= c * blocks) && (lastWrittenChunk < (c + 1) * blocks)) Console.Write('O');
-                    else if (allOn) Console.Write('#');
-                    else if (allOff) Console.Write('*');
-                    else Console.Write('-');
+                        bool allOn = true;
+                        bool allOff = false;
+                        for (int i = 0; (i < numBlocks) && boolACKs.MoveNext(); ++i)
+                        {
+                            bool curr = (bool)boolACKs.Current;
+                            allOn = allOn & curr;
+                            allOff = allOff | curr;
+                        }
+
+                        for (int x = lastc; x < c; ++x)
+                        {
+                            if ((lastWrittenChunk >= c * blocks) && (lastWrittenChunk < (c + 1) * blocks)) Console.Write('O');
+                            else if (allOn) Console.Write('#');
+                            else if (allOff) Console.Write('*');
+                            else Console.Write('-');
+                        }
+                    }
+                }
+                else
+                {
+                    int lastc = 0, c = 0, subc = 0;
+                    for (int i = 0; i < numChunks; ++i)
+                    {
+                        lastc = c;
+                        c += subblocks;
+                        if ((subblocksRem > 0) && (subc++ >= subblocksRem))
+                        {
+                            ++c;
+                            subc = 0;
+                        }
+
+                        if (!boolACKs.MoveNext()) break;
+                        bool curr = (bool)boolACKs.Current;
+
+                        for (int x = lastc; x < c; ++x)
+                        {
+                            if (lastWrittenChunk == i) Console.Write('O');
+                            else if (curr) Console.Write('#');
+                            else Console.Write('-');
+                        }
+                    }
                 }
 
                 Console.Write(']');
@@ -270,13 +322,13 @@ namespace WellDunne.LanCaster.Server
 
         void ChunkACKed(ServerHost host, int chunkIdx)
         {
-            RenderProgress(host);
+            RenderProgress(host, false);
         }
 
         void ChunkSent(ServerHost host, int chunkIdx)
         {
             lastWrittenChunk = chunkIdx;
-            RenderProgress(host);
+            RenderProgress(host, false);
         }
 
         private static void DisplayHeader()

@@ -305,27 +305,26 @@ namespace WellDunne.LanCaster
                             data.Send("PING", Encoding.Unicode);
                         }
 
-                        // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least 10 chunks:
-                        if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= 50)
+                        // Anyone timed out yet?
+                        DateTimeOffset rightMeow = DateTimeOffset.UtcNow;
+                        KeyValuePair<Guid, DateTimeOffset> timedOutClient = clientTimeout.FirstOrDefault(dt => dt.Value < rightMeow);
+                        if (timedOutClient.Key != Guid.Empty)
                         {
-                            trace("Still awaiting ACKs on {0} packets", awaitingClientACKs.Count);
-                            DateTimeOffset rightMeow = DateTimeOffset.UtcNow;
-
-                            // Anyone timed out yet?
-                            KeyValuePair<Guid, DateTimeOffset> timedOutClient = clientTimeout.FirstOrDefault(dt => dt.Value < rightMeow);
-                            if (timedOutClient.Key == Guid.Empty)
-                            {
-                                continue;
-                            }
-
                             // Yes, remove that client:
                             clientTimeout.Remove(timedOutClient.Key);
                             clients.Remove(timedOutClient.Key);
-                            
+
                             foreach (HashSet<Guid> awaiter in awaitingClientACKs.Values)
                                 awaiter.Remove(timedOutClient.Key);
 
                             if (ClientLeft != null) ClientLeft(this, timedOutClient.Key, ClientLeaveReason.TimedOut);
+                        }
+
+                        // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least 10 chunks:
+                        if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= 50)
+                        {
+                            trace("Still awaiting ACKs on {0} packets", awaitingClientACKs.Count);
+                            continue;
                         }
 
                         // Find the next best chunk to send:
