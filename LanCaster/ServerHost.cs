@@ -389,10 +389,12 @@ namespace WellDunne.LanCaster
                     // Begin the data delivery loop:
                     while (true)
                     {
+#if false
                         // Wait until the data socket is ready to send on:
                         while (ctx.Poll(pollItems) == 0)
                         {
                         }
+#endif
 
                         // PING everyone:
                         if (DateTimeOffset.UtcNow.Subtract(lastPing).TotalMilliseconds >= 500d)
@@ -405,6 +407,7 @@ namespace WellDunne.LanCaster
                             data.Send("PING", Encoding.Unicode);
                         }
 
+                        int currAcksValue;
                         lock (clientLock)
                         {
                             // Anyone timed out yet?
@@ -421,12 +424,23 @@ namespace WellDunne.LanCaster
 
                                 if (ClientLeft != null) ClientLeft(this, timedOutClient.Key, ClientLeaveReason.TimedOut);
                             }
+
+                            currAcksValue = Thread.VolatileRead(ref currentAcks);
                         }
+
+                        // If we didn't ACK anything at all this time around, wait until we do before we continue sending:
+                        if (lastAcks == currAcksValue)
+                        {
+                            Thread.Sleep(20);
+                            continue;
+                        }
+                        lastAcks = currAcksValue;
 
                         // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least `queueBacklog` chunks:
                         if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= queueBacklog)
                         {
                             //trace("Still awaiting ACKs on {0} packets", awaitingClientACKs.Count);
+                            Thread.Sleep(20);
                             continue;
                         }
 
@@ -485,22 +499,13 @@ namespace WellDunne.LanCaster
 
                         // Send the current chunk:
                         // FIXME: timeouts on await!
-                        int currAcksValue;
                         bool notAwaiting = true;
                         lock (clientLock)
                         {
                             notAwaiting = (!awaitingClientACKs.ContainsKey(chunkIdx.Value) || (awaitingClientACKs[chunkIdx.Value].Count == 0));
-                            currAcksValue = Thread.VolatileRead(ref currentAcks);
                         }
 
                         if (!notAwaiting)
-                        {
-                            Thread.Sleep(20);
-                            continue;
-                        }
-
-                        // If we didn't ACK anything at all this time around, wait until we do before we continue sending:
-                        if (lastAcks != (lastAcks = currAcksValue))
                         {
                             Thread.Sleep(20);
                             continue;
