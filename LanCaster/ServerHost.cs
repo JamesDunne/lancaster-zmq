@@ -110,6 +110,7 @@ namespace WellDunne.LanCaster
         private int queueBacklog;
         private ulong hwm;
         private bool isRunning;
+        private int lastAcks, currentAcks;
 
         private static void WriteBuffer(Stream st, byte[] buf)
         {
@@ -239,6 +240,11 @@ namespace WellDunne.LanCaster
                                             host.awaitingClientACKs[idx].Remove(clientIdentity);
                                         }
                                     }
+
+                                    // Keep a running count of ACKs received so we know when to keep
+                                    // the server sending data. If no one is listening or is too slow,
+                                    // don't bother pegging the CPU in the while loop.
+                                    Interlocked.Increment(ref host.currentAcks);
                                 }
                                 if (host.ChunksACKed != null) host.ChunksACKed(host, nakChunkIdxs);
 
@@ -479,13 +485,22 @@ namespace WellDunne.LanCaster
 
                         // Send the current chunk:
                         // FIXME: timeouts on await!
+                        int currAcksValue;
                         bool notAwaiting = true;
                         lock (clientLock)
                         {
                             notAwaiting = (!awaitingClientACKs.ContainsKey(chunkIdx.Value) || (awaitingClientACKs[chunkIdx.Value].Count == 0));
+                            currAcksValue = Thread.VolatileRead(ref currentAcks);
                         }
 
                         if (!notAwaiting)
+                        {
+                            Thread.Sleep(20);
+                            continue;
+                        }
+
+                        // If we didn't ACK anything at all this time around, wait until we do before we continue sending:
+                        if (lastAcks != (lastAcks = currAcksValue))
                         {
                             Thread.Sleep(20);
                             continue;
