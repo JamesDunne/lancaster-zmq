@@ -100,7 +100,7 @@ namespace WellDunne.LanCaster.Client
                     // Clean up our download state on successful completion:
                     Console.WriteLine();
                     Console.WriteLine("Successful completion.");
-                    localStateStream.Close();
+                    if (localStateStream != null) localStateStream.Close();
                     localStateFile.Delete();
                     lccDir.Delete(true);
                 }
@@ -194,6 +194,10 @@ namespace WellDunne.LanCaster.Client
 
             if (localStateFile.Exists)
             {
+                if (localStateStream != null)
+                {
+                    localStateStream.Close();
+                }
                 localStateStream = localStateFile.Open(FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
                 if (localStateStream.Length != numChunkBytes)
                 {

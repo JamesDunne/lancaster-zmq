@@ -203,6 +203,7 @@ namespace WellDunne.LanCaster.Server
                 Console.WriteLine("{0,15} chunks @ {1,13} bytes/chunk", server.NumChunks.ToString("##,#"), server.ChunkSize.ToString("##,#"));
 
                 server.ChunkSent += new Action<ServerHost, int>(ChunkSent);
+                server.ChunkACKed += new Action<ServerHost,int>(ChunkACKed);
 
                 // Begin the server thread:
                 var serverThread = new Thread(server.Run);
@@ -216,15 +217,13 @@ namespace WellDunne.LanCaster.Server
 
         private int lastChunkBlock = -1;
         private bool wroteLegend = false;
+        private int lastWrittenChunk = -1;
 
-        void ChunkSent(ServerHost host, int chunkIdx)
+        void RenderProgress(LanCaster.ServerHost host)
         {
-#if false
-            Console.WriteLine("Broadcast chunk {0,13} of {1,13}", (chunkIdx + 1).ToString("##,#"), host.NumChunks.ToString("##,#"));
-#else
             int blocks = host.NumChunks / (Console.WindowWidth - 3);
             int blocksRem = host.NumChunks % (Console.WindowWidth - 3);
-            int currChunkBlock = chunkIdx / blocks;
+            int currChunkBlock = lastWrittenChunk / blocks;
 
             if (currChunkBlock != lastChunkBlock)
             {
@@ -242,11 +241,6 @@ namespace WellDunne.LanCaster.Server
                 Console.Write(backup);
                 Console.Write('[');
 
-#if false
-                for (int i = 0; i < currChunkBlock; ++i) Console.Write('-');
-                Console.Write('O');
-                for (int i = currChunkBlock + 1; i < (Console.WindowWidth - 3); ++i) Console.Write('-');
-#else
                 BitArray naks = new BitArray(host.NumBitArrayBytes * 8, false);
                 foreach (var cli in host.Clients)
                 {
@@ -264,16 +258,25 @@ namespace WellDunne.LanCaster.Server
                         allOff = allOff | ((bool)boolACKs.Current);
                     }
 
-                    if ((chunkIdx >= c * blocks) && (chunkIdx < (c + 1) * blocks)) Console.Write('O');
+                    if ((lastWrittenChunk >= c * blocks) && (lastWrittenChunk < (c + 1) * blocks)) Console.Write('O');
                     else if (allOn) Console.Write('#');
                     else if (allOff) Console.Write('*');
                     else Console.Write('-');
                 }
-#endif
 
                 Console.Write(']');
             }
-#endif
+        }
+
+        void ChunkACKed(ServerHost host, int chunkIdx)
+        {
+            RenderProgress(host);
+        }
+
+        void ChunkSent(ServerHost host, int chunkIdx)
+        {
+            lastWrittenChunk = chunkIdx;
+            RenderProgress(host);
         }
 
         private static void DisplayHeader()

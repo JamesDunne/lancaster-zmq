@@ -57,6 +57,7 @@ namespace WellDunne.LanCaster
         }
 
         public event Action<ServerHost, int> ChunkSent;
+        public event Action<ServerHost, int> ChunkACKed;
         public event Action<ServerHost, Guid> ClientJoined;
         public event Action<ServerHost, Guid, ClientLeaveReason> ClientLeft;
 
@@ -206,6 +207,8 @@ namespace WellDunne.LanCaster
                                 sock.Send("", Encoding.Unicode);
 
                                 awaitingClientACKs[nakChunkIdx].Remove(clientIdentity);
+
+                                if (ChunkACKed != null) ChunkACKed(this, nakChunkIdx);
                                 break;
 
                             case "NAKS":
@@ -272,8 +275,6 @@ namespace WellDunne.LanCaster
                         }
 
                         request = null;
-                        // TODO: detect more messages to receive
-
                     });
 
                     int? chunkIdx = null;
@@ -320,8 +321,10 @@ namespace WellDunne.LanCaster
                             // Yes, remove that client:
                             clientTimeout.Remove(timedOutClient.Key);
                             clients.Remove(timedOutClient.Key);
+                            
                             foreach (HashSet<Guid> awaiter in awaitingClientACKs.Values)
                                 awaiter.Remove(timedOutClient.Key);
+
                             if (ClientLeft != null) ClientLeft(this, timedOutClient.Key, ClientLeaveReason.TimedOut);
                         }
 
@@ -339,7 +342,10 @@ namespace WellDunne.LanCaster
                         chunkIdx = (
                             from cli in clientOrder
                             // Find the first NAK for the client with the least amount of NAKs to receive:
-                            let ch = cli.client.NAK.Cast<bool>().Select((b, i) => new { b, i }).FirstOrDefault(x => x.b && ((!awaitingClientACKs.ContainsKey(x.i)) || (awaitingClientACKs[x.i].Count == 0)))
+                            let ch = cli.client.NAK
+                                .Cast<bool>()
+                                .Select((b, i) => new { b, i })
+                                .FirstOrDefault(x => x.b /* && ((!awaitingClientACKs.ContainsKey(x.i)) || (awaitingClientACKs[x.i].Count == 0)) */)
                             where ch != null
                             select (int?)ch.i
                         ).FirstOrDefault();

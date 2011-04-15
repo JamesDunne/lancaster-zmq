@@ -114,7 +114,7 @@ namespace WellDunne.LanCaster
                     TarballStreamReader tarball = null;
                     BitArray naks = null;
                     int numBytes = 0;
-                    int ackCount = 0;
+                    int ackCount = -1;
                     byte[] nakBuf = null;
 
                     {
@@ -309,124 +309,6 @@ namespace WellDunne.LanCaster
                         pollItems[1].PollInHandler += new PollHandler(controlFSM.StateMasheen);
                         pollItems[1].PollOutHandler += new PollHandler(controlFSM.StateMasheen);
 
-#if false
-                        pollItems[0].PollInHandler += new PollHandler((Socket sock, IOMultiPlex mp) =>
-                        {
-                            // Receive a message on the data socket:
-                            trace("data.RecvAll for poll");
-                            Queue<byte[]> packet = sock.RecvAll();
-
-                            string sub = Encoding.Unicode.GetString(packet.Dequeue());
-                            string cmd = Encoding.Unicode.GetString(packet.Dequeue());
-                            trace("Server: '{0}'", cmd);
-                            if (cmd == "PING")
-                            {
-                                ctl.SendMore(ctl.Identity);
-                                ctl.Send("ALIVE", Encoding.Unicode);
-
-                                // Wait for the response:
-                                trace("ctl.RecvAll for ALIVE reply");
-                                Queue<byte[]> pingReply = ctl.RecvAll(10000);
-                                if (pingReply == null)
-                                {
-                                    trace("Timed out waiting for server reply to ALIVE");
-                                    ctl.Dispose();
-                                    ctl = null;
-                                    return;
-                                }
-
-                                string pingCmd = Encoding.Unicode.GetString(pingReply.Dequeue());
-                                trace("Server: '{0}'", pingCmd);
-                                if (pingCmd == "") return;
-
-                                // Is server confused?
-                                if (pingCmd == "WHOAREYOU")
-                                {
-                                    // Server must have restarted and is now confused.
-
-                                    // Send a JOIN request:
-                                    ctl.SendMore(ctl.Identity);
-                                    ctl.Send("JOIN", Encoding.Unicode);
-
-                                    // Process the reply:
-                                    trace("ctl.RecvAll for JOIN reply");
-                                    Queue<byte[]> reply2 = ctl.RecvAll();
-
-                                    string resp2 = Encoding.Unicode.GetString(reply2.Dequeue());
-
-                                    if (resp2 != "JOINED")
-                                    {
-                                        //Console.WriteLine("Fail!");
-                                        return;
-                                    }
-
-                                    // TODO: verify the JOINED response is the same as what we originally got?
-
-                                    // Send our NAKs:
-                                    ctl.SendMore(ctl.Identity);
-                                    ctl.SendMore("NAKS", Encoding.Unicode);
-                                    nakBuf = new byte[numBytes];
-                                    naks.CopyTo(nakBuf, 0);
-                                    trace("CTL2 SEND NAK");
-                                    ctl.Send(nakBuf);
-                                    nakBuf = null;
-
-                                    // Wait for the NAK reply:
-                                    trace("CTL2 RECV NAK");
-                                    Queue<byte[]> nak2Reply = ctl.RecvAll(10000);
-                                    if (nak2Reply == null)
-                                    {
-                                        trace("Timed out waiting for server reply to NAK");
-                                        ctl.Dispose();
-                                        ctl = null;
-                                        return;
-                                    }
-                                    trace("NAK2 ok");
-
-                                    return;
-                                }
-                            }
-
-                            Debug.Assert(cmd == "DATA");
-
-                            int chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
-                            // Already received this chunk?
-                            if (!naks[chunkIdx])
-                            {
-                                trace("ALREADY RECV {0}", chunkIdx);
-                                return;
-                            }
-
-                            trace("RECV {0}", chunkIdx);
-
-                            byte[] chunk = packet.Dequeue();
-                            if (!testMode)
-                            {
-                                tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
-                                tarball.Write(chunk, 0, chunk.Length);
-                            }
-                            chunk = null;
-
-                            naks[chunkIdx] = false;
-                            ++ackCount;
-                            // Notify the host that a chunk was written:
-                            if (ChunkWritten != null) ChunkWritten(chunkIdx);
-
-                            // Send a ACK packet to the control socket:
-                            ctl.SendMore(ctl.Identity);
-                            ctl.SendMore("ACK", Encoding.Unicode);
-                            ctl.Send(BitConverter.GetBytes(chunkIdx));
-                            if (ctl.RecvAll() == null)
-                            {
-                                trace("Timed out waiting for server reply to ACK");
-                                ctl.Dispose();
-                                ctl = null;
-                            }
-
-                            packet = null;
-                        });
-#endif
-
                         DateTimeOffset lastRecv = DateTimeOffset.UtcNow;
 
                         // Create a socket poller for the data socket:
@@ -444,37 +326,15 @@ namespace WellDunne.LanCaster
                                 ctl.Identity = new byte[1] { (byte)'@' }.Concat(myIdentity.ToByteArray()).ToArray();
                             }
 
-#if true
+                            trace("POLL");
+                            while ((ctx.Poll(pollItems, 100000) == 1) && (ctl != null))
+                            {
+                            }
+
                             if (ackCount >= numChunks)
                             {
                                 Completed = true;
                                 break;
-                            }
-#else
-                            // No more NAKed packets?
-                            if (naks.Cast<bool>().Take(numChunks).All(b => !b))
-                            {
-                                Completed = true;
-                                break;
-                            }
-#endif
-
-                            // Process incoming DATA subscription messages while they're available:
-                            bool gotData = false;
-                            trace("POLL");
-                            while ((ctx.Poll(pollItems, 100000) == 1) && (ctl != null))
-                            {
-                                gotData = true;
-                                lastRecv = DateTimeOffset.UtcNow;
-                            }
-
-                            if (!gotData && (DateTimeOffset.UtcNow.Subtract(lastRecv).TotalSeconds >= 10))
-                            {
-#if false
-                                // TODO: Hack the clrzmq2 Socket to allow closing and reopening the same Socket instance using
-                                // a new 0MQ socket.
-                                throw new System.Exception("BUG: No data received from server in 10 seconds. Need to close and reopen socket but CLRZMQ2 API doesn't allow this.");
-#endif
                             }
                         }
 
