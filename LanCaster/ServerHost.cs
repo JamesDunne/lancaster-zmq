@@ -475,14 +475,17 @@ namespace WellDunne.LanCaster
                                 maxACKsPerMinute = 0;
                         }
 
+#if false
                         // Don't send faster than our fastest receiver can receive:
-                        if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute >= (maxACKsPerMinute * 150 / 100)))
+                        if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute >= (maxACKsPerMinute * 200 / 100)))
                         {
                             Thread.Sleep(1);
                             continue;
                         }
 #endif
+#endif
 
+#if false
                         // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least `queueBacklog` chunks:
                         if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= queueBacklog)
                         {
@@ -490,6 +493,7 @@ namespace WellDunne.LanCaster
                             Thread.Sleep(1);
                             continue;
                         }
+#endif
 
                         // Find the next best chunk to send:
                         lock (clientLock)
@@ -508,7 +512,7 @@ namespace WellDunne.LanCaster
                                 let ch = cli.client.NAK
                                     .Cast<bool>()
                                     .Select((b, i) => new { b, i })
-                                    .FirstOrDefault(x => x.b && ((!awaitingClientACKs.ContainsKey(x.i)) || (awaitingClientACKs[x.i].Count == 0)))
+                                    .FirstOrDefault(x => ((!awaitingClientACKs.ContainsKey(x.i)) || (awaitingClientACKs[x.i].Count == 0)) && x.b)
                                 where ch != null
                                 select (int?)ch.i
                             ).FirstOrDefault();
