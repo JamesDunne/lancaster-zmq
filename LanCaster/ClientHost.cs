@@ -102,9 +102,6 @@ namespace WellDunne.LanCaster
 
                 using (Socket disk = new Socket(SocketType.PULL))
                 {
-                    // Set the HWM for the disk PULL so that the PUSH blocks if we can't keep up writing:
-                    disk.HWM = 50UL;
-
                     disk.Connect("inproc://disk");
 
                     Thread.Sleep(500);
@@ -182,6 +179,8 @@ namespace WellDunne.LanCaster
                     ctl = ctx.Socket(SocketType.REQ);
                     disk = new Socket(SocketType.PUSH);
 
+                    // Set the HWM for the disk PUSH so that the PUSH blocks if the PULL can't keep up writing:
+                    disk.HWM = 100;
                     disk.Bind("inproc://disk");
 
                     // Create the disk PULL thread:
