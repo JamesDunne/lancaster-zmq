@@ -24,6 +24,7 @@ namespace WellDunne.LanCaster
         private string device;
         private int hwm;
         private TarballStreamReader tarball = null;
+        private readonly object tarballLock = new object();
 
         public delegate BitArray GetClientNAKStateDelegate(ClientHost host, int numChunks, int chunkSize, TarballStreamReader tarball);
 
@@ -119,7 +120,7 @@ namespace WellDunne.LanCaster
                     pollItems[0].PollInHandler += new PollHandler((Socket sock, IOMultiPlex revents) =>
                     {
                         Queue<byte[]> packet = sock.RecvAll();
-                        
+
                         // Determine the action to take:
                         byte[] cmd = packet.Dequeue();
 
@@ -135,8 +136,11 @@ namespace WellDunne.LanCaster
                                 chunk = packet.Dequeue();
                                 if (!testMode)
                                 {
-                                    tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
-                                    tarball.Write(chunk, 0, chunk.Length);
+                                    lock (tarballLock)
+                                    {
+                                        tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
+                                        tarball.Write(chunk, 0, chunk.Length);
+                                    }
                                 }
 
                                 // Send the acknowledgement that this chunk was written to disk:
@@ -399,18 +403,21 @@ namespace WellDunne.LanCaster
                                     tbes.Add(tbe);
                                 }
 
-                                if (tarball != null)
+                                lock (tarballLock)
                                 {
-                                    tarball.Close();
-                                    tarball.Dispose();
-                                    tarball = null;
+                                    if (tarball != null)
+                                    {
+                                        tarball.Close();
+                                        tarball.Dispose();
+                                        tarball = null;
+                                    }
+
+                                    // Create the tarball reader that writes the files locally:
+                                    tarball = new TarballStreamReader(downloadDirectory, tbes);
+
+                                    // Get our local download state:
+                                    naks = getClientState(this, numChunks, chunkSize, tarball);
                                 }
-
-                                // Create the tarball reader that writes the files locally:
-                                tarball = new TarballStreamReader(downloadDirectory, tbes);
-
-                                // Get our local download state:
-                                naks = getClientState(this, numChunks, chunkSize, tarball);
                                 ackCount = naks.Cast<bool>().Count(b => !b);
 
                                 // Send our NAKs:
@@ -526,7 +533,7 @@ namespace WellDunne.LanCaster
                                 recvTimer.Start();
                                 lastElapsedMilliseconds = 0L;
                             }
-                            
+
                             if (ackCount >= numChunks)
                             {
                                 Completed = true;

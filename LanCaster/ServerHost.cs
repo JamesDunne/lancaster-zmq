@@ -100,7 +100,7 @@ namespace WellDunne.LanCaster
         private int numChunks;
         private int numBitArrayBytes;
         private Dictionary<Guid, ClientState> clients = new Dictionary<Guid, ClientState>();
-        private Dictionary<Guid, DateTimeOffset> clientTimeout = new Dictionary<Guid, DateTimeOffset>();
+        private Dictionary<Guid, DateTimeOffset[]> clientTimeout = new Dictionary<Guid, DateTimeOffset[]>();
         private Dictionary<int, HashSet<Guid>> awaitingClientACKs = new Dictionary<int, HashSet<Guid>>();
         private int queueBacklog;
         private int hwm;
@@ -149,7 +149,7 @@ namespace WellDunne.LanCaster
                         bool clientExists;
                         lock (host.clientLock)
                         {
-                            host.clientTimeout[clientIdentity] = DateTimeOffset.UtcNow.AddSeconds(2);
+                            host.clientTimeout[clientIdentity] = new DateTimeOffset[2] { DateTimeOffset.UtcNow.AddSeconds(5), DateTimeOffset.UtcNow.AddSeconds(2) };
                             clientExists = host.clients.ContainsKey(clientIdentity);
                         }
 
@@ -403,15 +403,21 @@ namespace WellDunne.LanCaster
                         {
                             // Anyone timed out yet?
                             DateTimeOffset rightMeow = DateTimeOffset.UtcNow;
-                            KeyValuePair<Guid, DateTimeOffset> timedOutClient = clientTimeout.FirstOrDefault(dt => dt.Value < rightMeow);
+                            KeyValuePair<Guid, DateTimeOffset[]> sickOfAwaitingClient = clientTimeout.FirstOrDefault(dt => dt.Value[1] < rightMeow);
+                            if (sickOfAwaitingClient.Key != Guid.Empty)
+                            {
+                                sickOfAwaitingClient.Value[1] = DateTimeOffset.UtcNow.AddSeconds(2);
+                                // We're sick of waiting on this client's ACK, maybe they lost the packet(s).
+                                foreach (HashSet<Guid> awaiter in awaitingClientACKs.Values)
+                                    awaiter.Remove(sickOfAwaitingClient.Key);
+                            }
+
+                            KeyValuePair<Guid, DateTimeOffset[]> timedOutClient = clientTimeout.FirstOrDefault(dt => dt.Value[0] < rightMeow);
                             if (timedOutClient.Key != Guid.Empty)
                             {
                                 // Yes, remove that client:
                                 clientTimeout.Remove(timedOutClient.Key);
                                 clients.Remove(timedOutClient.Key);
-
-                                foreach (HashSet<Guid> awaiter in awaitingClientACKs.Values)
-                                    awaiter.Remove(timedOutClient.Key);
 
                                 if (ClientLeft != null) ClientLeft(this, timedOutClient.Key, ClientLeaveReason.TimedOut);
                             }
