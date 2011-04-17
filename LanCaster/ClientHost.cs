@@ -108,7 +108,6 @@ namespace WellDunne.LanCaster
                     ctl = ctx.Socket(SocketType.REQ);
 
                     data.HWM = hwm;
-                    ctl.HWM = hwm;
 
                     data.RcvBuf = 1048576UL * 128UL * 2UL;
                     data.Connect("tcp://" + device + ":" + port.ToString());
@@ -373,7 +372,6 @@ namespace WellDunne.LanCaster
                                 trace("Creating new CONTROL socket");
                                 // Set up new socket:
                                 ctl = ctx.Socket(SocketType.REQ);
-                                ctl.HWM = hwm;
                                 // Connect to the control request socket:
                                 ctl.Connect("tcp://" + device + ":" + (port + 1).ToString());
                                 ctl.Identity = new byte[1] { (byte)'@' }.Concat(myIdentity.ToByteArray()).ToArray();

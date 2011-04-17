@@ -134,8 +134,6 @@ namespace WellDunne.LanCaster
 
                 using (Socket ctl = ctx.Socket(SocketType.REP))
                 {
-                    ctl.HWM = host.hwm;
-
                     // Bind the control reply socket:
                     ctl.Bind("tcp://" + host.device + ":" + (host.port + 1).ToString());
 
@@ -475,7 +473,7 @@ namespace WellDunne.LanCaster
                                 maxACKsPerMinute = 0;
                         }
 
-#if false
+#if true
                         // Don't send faster than our fastest receiver can receive:
                         if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute >= (maxACKsPerMinute * 200 / 100)))
                         {
