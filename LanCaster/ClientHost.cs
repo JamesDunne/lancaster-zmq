@@ -23,6 +23,7 @@ namespace WellDunne.LanCaster
         private ushort port;
         private string device;
         private ulong hwm;
+        private TarballStreamReader tarball = null;
 
         public delegate BitArray GetClientNAKStateDelegate(ClientHost host, int numChunks, int chunkSize, TarballStreamReader tarball);
 
@@ -90,6 +91,77 @@ namespace WellDunne.LanCaster
             }
         }
 
+        private static readonly byte[] cmdWrite = new byte[1] { (byte)'W' };
+        private static readonly byte[] cmdExit = new byte[1] { (byte)'X' };
+
+        private void DiskWriterThread(object threadContext)
+        {
+            try
+            {
+                Context ctx = (Context)threadContext;
+
+                using (Socket disk = new Socket(SocketType.PULL))
+                {
+                    // Set the HWM for the disk PULL so that the PUSH blocks if we can't keep up writing:
+                    disk.HWM = 50UL;
+
+                    disk.Connect("inproc://disk");
+
+                    Thread.Sleep(500);
+
+                    bool done = false;
+
+                    PollItem[] pollItems = new PollItem[1];
+                    pollItems[0] = disk.CreatePollItem(IOMultiPlex.POLLIN);
+                    pollItems[0].PollInHandler += new PollHandler((Socket sock, IOMultiPlex revents) =>
+                    {
+                        Queue<byte[]> packet = sock.RecvAll();
+                        
+                        // Determine the action to take:
+                        byte[] cmd = packet.Dequeue();
+
+                        int chunkIdx;
+                        byte[] chunk;
+
+                        switch (cmd[0])
+                        {
+                            // Write to disk
+                            case (byte)'W':
+                                chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
+                                chunk = packet.Dequeue();
+                                if (!testMode)
+                                {
+                                    tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
+                                    tarball.Write(chunk, 0, chunk.Length);
+                                }
+                                break;
+
+                            // Exit thread
+                            case (byte)'X':
+                                done = true;
+                                break;
+
+                            default:
+                                break;
+                        }
+                    });
+
+                    while (!done)
+                    {
+                        while (ctx.Poll(pollItems) == 1)
+                        {
+                        }
+
+                        Thread.Sleep(1);
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Console.Error.WriteLine(ex.ToString());
+            }
+        }
+
         /// <summary>
         /// Main thread to host the client process.
         /// </summary>
@@ -103,11 +175,18 @@ namespace WellDunne.LanCaster
                 // This would be a using statement on data and ctl but we need to close and reopen sockets, which means
                 // we have to Dispose() of a socket early and create a new instance. C#, wisely so, prevents you from
                 // reassigning a using variable.
-                Socket data = null, ctl = null;
+                Socket data = null, ctl = null, disk = null;
                 try
                 {
                     data = ctx.Socket(SocketType.SUB);
                     ctl = ctx.Socket(SocketType.REQ);
+                    disk = new Socket(SocketType.PUSH);
+
+                    disk.Bind("inproc://disk");
+
+                    // Create the disk PULL thread:
+                    Thread diskWriterThread = new Thread(new ParameterizedThreadStart(DiskWriterThread));
+                    diskWriterThread.Start(ctx);
 
                     data.HWM = hwm;
 
@@ -125,7 +204,6 @@ namespace WellDunne.LanCaster
 
                     // Begin client logic:
 
-                    TarballStreamReader tarball = null;
                     BitArray naks = null;
                     int numBytes = 0;
                     int ackCount = -1;
@@ -178,16 +256,13 @@ namespace WellDunne.LanCaster
 
                                     trace("RECV {0}", chunkIdx);
 
+                                    // Queue up the disk writes with PUSH/PULL and an HWM on a separate thread to maintain as
+                                    // constant disk write throughput as we can get... The HWM will enforce the PUSHer to block
+                                    // when the PULLer cannot receive yet.
                                     byte[] chunk = packet.Dequeue();
-                                    // TODO: possibly queue up the disk writes with PUSH/PULL and an HWM on
-                                    // a separate thread to maintain as constant disk write throughput as we
-                                    // can get... The HWM will enforce the PUSHer to block when the PULLer
-                                    // cannot receive yet.
-                                    if (!testMode)
-                                    {
-                                        tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
-                                        tarball.Write(chunk, 0, chunk.Length);
-                                    }
+                                    disk.SendMore(cmdWrite);
+                                    disk.SendMore(BitConverter.GetBytes(chunkIdx));
+                                    disk.Send(chunk);
                                     chunk = null;
 
                                     naks[chunkIdx] = false;
@@ -414,9 +489,12 @@ namespace WellDunne.LanCaster
                             if (ackCount >= numChunks)
                             {
                                 Completed = true;
+                                disk.Send(cmdExit);
                                 break;
                             }
                         }
+
+                        diskWriterThread.Join();
 
                         // FIXME: this can be the wrong time to attempt Send.
                         ctl.SendMore(ctl.Identity);
