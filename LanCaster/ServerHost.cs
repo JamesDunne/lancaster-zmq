@@ -21,11 +21,13 @@ namespace WellDunne.LanCaster
         private readonly object clientLock = new object();
         private static readonly BooleanSwitch doLogging = new BooleanSwitch("doLogging", "Log server events", "0");
 
-        public int chunkSize;
-        private ushort port;
+        private bool testMode;
+        private int chunkSize, lastChunkSize;
+        private Transport tsp;
+        private uint port;
         private string device;
 
-        public ServerHost(string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize, int queueBacklog, int hwm)
+        public ServerHost(Transport tsp, string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize, int queueBacklog, int hwm, bool testMode)
         {
             if (String.IsNullOrEmpty(endpoint)) throw new ArgumentNullException("endpoint");
             if (String.IsNullOrEmpty(subscription)) throw new ArgumentNullException("subscription");
@@ -33,13 +35,17 @@ namespace WellDunne.LanCaster
             if (String.IsNullOrEmpty(basePath)) throw new ArgumentNullException("basePath");
             if (queueBacklog < 1) throw new ArgumentOutOfRangeException("queueBacklog", "queueBacklog must be 1 or greater");
 
+            this.tsp = tsp;
             this.endpoint = endpoint;
             this.subscription = subscription;
             this.tarball = tarball;
             this.basePath = basePath;
             this.chunkSize = chunkSize;
             this.queueBacklog = queueBacklog;
-            this.numChunks = (int)(tarball.Length / chunkSize) + ((tarball.Length % chunkSize > 0) ? 1 : 0);
+            this.testMode = testMode;
+
+            this.lastChunkSize = (int)(tarball.Length % chunkSize);
+            this.numChunks = (int)(tarball.Length / chunkSize) + ((lastChunkSize > 0) ? 1 : 0);
             this.numBitArrayBytes = ((numChunks + 7) & ~7) >> 3;
             //this.currentNAKs = new BitArray(numBitArrayBytes * 8, false);
 
@@ -51,7 +57,7 @@ namespace WellDunne.LanCaster
             if (idx >= 0)
             {
                 device = endpoint.Substring(0, idx);
-                UInt16.TryParse(endpoint.Substring(idx + 1), out port);
+                UInt32.TryParse(endpoint.Substring(idx + 1), out port);
             }
 
             this.hwm = hwm;
@@ -133,7 +139,7 @@ namespace WellDunne.LanCaster
                 using (Socket ctl = ctx.Socket(SocketType.REP))
                 {
                     // Bind the control reply socket:
-                    ctl.Bind("tcp://" + host.device + ":" + (host.port + 1).ToString());
+                    ctl.Bind(Transport.TCP, host.device, (host.port + 1));
 
                     // Wait for the sockets to bind:
                     Thread.Sleep(500);
@@ -358,7 +364,7 @@ namespace WellDunne.LanCaster
                     //data.Rate = 20000L;
                     data.SndBuf = chunkSize * queueBacklog * 8;
                     data.StringToIdentity(subscription, Encoding.Unicode);
-                    data.Bind("tcp://" + device + ":" + port.ToString());
+                    data.Bind(tsp.ToString().ToLower() + "://" + device + ":" + port);
 
                     isRunning = true;
 
@@ -516,8 +522,20 @@ namespace WellDunne.LanCaster
                         data.SendMore(BitConverter.GetBytes(chunkIdx.Value));
 
                         // Chunk size:
-                        tarball.Seek((long)chunkIdx.Value * chunkSize, SeekOrigin.Begin);
-                        int currChunkSize = tarball.Read(buf, 0, chunkSize);
+                        int currChunkSize;
+                        if (!testMode)
+                        {
+                            tarball.Seek((long)chunkIdx.Value * chunkSize, SeekOrigin.Begin);
+                            currChunkSize = tarball.Read(buf, 0, chunkSize);
+                        }
+                        else
+                        {
+                            if (lastChunkSize > 0)
+                                currChunkSize = (chunkIdx.Value < (numChunks - 1)) ? chunkSize : lastChunkSize;
+                            else
+                                currChunkSize = chunkSize;
+                        }
+
                         if (currChunkSize < chunkSize)
                         {
                             // Copy to an exact-sized temporary buffer for the last uneven sized chunk:

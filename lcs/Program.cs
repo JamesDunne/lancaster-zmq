@@ -18,6 +18,7 @@ namespace WellDunne.LanCaster.Server
 
         void Run(string[] args)
         {
+            Transport tsp = Transport.TCP;
             string endpoint = "*";
             string subscription = String.Empty;
             DirectoryInfo tmpDir = null;
@@ -43,6 +44,14 @@ namespace WellDunne.LanCaster.Server
 
                 switch (arg)
                 {
+                    case "-a":
+                        if (argQueue.Count == 0)
+                        {
+                            Console.Error.WriteLine("-a expects a transport name argument");
+                            return;
+                        }
+                        tsp = (Transport)Enum.Parse(typeof(Transport), argQueue.Dequeue(), true);
+                        break;
                     case "-e":
                         if (argQueue.Count == 0)
                         {
@@ -183,6 +192,9 @@ namespace WellDunne.LanCaster.Server
                         }
                         Int32.TryParse(argQueue.Dequeue(), out hwm);
                         break;
+                    case "-t":
+                        testMode = true;
+                        break;
                     case "-?":
                         DisplayUsage();
                         return;
@@ -220,7 +232,7 @@ namespace WellDunne.LanCaster.Server
 
             using (var serverTarball = new TarballStreamWriter(files))
             {
-                var server = new LanCaster.ServerHost(endpoint, subscription, serverTarball, basePath, chunkSize, queueBacklog, hwm);
+                var server = new LanCaster.ServerHost(tsp, endpoint, subscription, serverTarball, basePath, chunkSize, queueBacklog, hwm, testMode);
 
                 Console.WriteLine();
                 Console.WriteLine("{0,15} chunks @ {1,13} bytes/chunk", server.NumChunks.ToString("##,#"), server.ChunkSize.ToString("##,#"));
@@ -260,6 +272,8 @@ namespace WellDunne.LanCaster.Server
         {
             RenderProgress(host, true);
         }
+
+        private bool testMode = false;
 
         private DateTimeOffset lastDisplayTime;
         private int lastChunkBlock = -1;
@@ -437,6 +451,8 @@ new[] { @"-c <chunk size>",     @"Set the chunk size in bytes to use for dividin
 new[] { @"-q <queue backlog>",  @"Set the server transmission queue backlog length (number of chunks). Default is 128 chunks." },
 new[] { @"-n <io threads>",     @"Set this value to the number of threads you wish 0MQ to dedicate to network I/O. Default is 1." },
 new[] { @"-w <hwm>",            @"Set the high-water mater (HWM) which is the maximum number of chunks 0MQ will queue before dropping them. Default is 32." },
+new[] { @"-a <transport>",      @"Use TCP or EPGM (multicast over UDP) transport for data. Default is TCP." },
+new[] { @"-t",                  @"Set test mode where we do not read from disk and send zeroed-out chunks." },
             };
 
             // Displays the error text wrapped to the console's width:
