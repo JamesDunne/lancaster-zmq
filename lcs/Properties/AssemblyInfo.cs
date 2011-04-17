@@ -5,11 +5,11 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following 
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("lcs")]
+[assembly: AssemblyTitle("LanCaster Server")]
 [assembly: AssemblyDescription("LanCaster Server")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("bitwwidlers.org")]
-[assembly: AssemblyProduct("lcs")]
+[assembly: AssemblyProduct("LanCaster Server")]
 [assembly: AssemblyCopyright("Copyright © bitwwidlers.org 2011")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
