@@ -25,7 +25,7 @@ namespace WellDunne.LanCaster
         private ushort port;
         private string device;
 
-        public ServerHost(string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize, int queueBacklog, ulong hwm)
+        public ServerHost(string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize, int queueBacklog, int hwm)
         {
             if (String.IsNullOrEmpty(endpoint)) throw new ArgumentNullException("endpoint");
             if (String.IsNullOrEmpty(subscription)) throw new ArgumentNullException("subscription");
@@ -103,7 +103,7 @@ namespace WellDunne.LanCaster
         private Dictionary<Guid, DateTimeOffset> clientTimeout = new Dictionary<Guid, DateTimeOffset>();
         private Dictionary<int, HashSet<Guid>> awaitingClientACKs = new Dictionary<int, HashSet<Guid>>();
         private int queueBacklog;
-        private ulong hwm;
+        private int hwm;
         private bool isRunning;
 
         private static void WriteBuffer(Stream st, byte[] buf)
@@ -350,13 +350,13 @@ namespace WellDunne.LanCaster
                 Context ctx = (Context)threadContext;
                 using (Socket data = ctx.Socket(SocketType.PUB))
                 {
-                    data.HWM = hwm;
+                    data.SNDHWM = hwm;
 
                     // Bind the data publisher socket:
 
                     // TODO: use epgm:// protocol for multicast efficiency when we build that support into libzmq.dll for Windows.
                     //data.Rate = 20000L;
-                    data.SndBuf = (ulong)chunkSize * (ulong)queueBacklog * 8UL;
+                    data.SndBuf = chunkSize * queueBacklog * 8;
                     data.StringToIdentity(subscription, Encoding.Unicode);
                     data.Bind("tcp://" + device + ":" + port.ToString());
 
@@ -367,10 +367,10 @@ namespace WellDunne.LanCaster
                     controlHandlerThread.Start(new object[] { ctx, this });
 
                     // Wait for the sockets to bind:
-                    Thread.Sleep(500);
+                    Thread.Sleep(1000);
 
-                    PollItem[] pollItems = new PollItem[1];
-                    pollItems[0] = data.CreatePollItem(IOMultiPlex.POLLOUT);
+                    //PollItem[] pollItems = new PollItem[1];
+                    //pollItems[0] = data.CreatePollItem(IOMultiPlex.POLLOUT);
 
                     int? chunkIdx = null;
                     byte[] buf = new byte[chunkSize];
@@ -392,8 +392,11 @@ namespace WellDunne.LanCaster
 
                             // Send a PING to all subscribers:
                             trace("PING");
-                            data.SendMore(this.subscription, Encoding.Unicode);
-                            data.Send("PING", Encoding.Unicode);
+                            //if (ctx.Poll(pollItems) == 1)
+                            //{
+                                data.SendMore(this.subscription, Encoding.Unicode);
+                                data.Send("PING", Encoding.Unicode);
+                            //}
                         }
 
                         lock (clientLock)

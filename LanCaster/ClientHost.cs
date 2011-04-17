@@ -22,12 +22,12 @@ namespace WellDunne.LanCaster
         private bool testMode;
         private ushort port;
         private string device;
-        private ulong hwm;
+        private int hwm;
         private TarballStreamReader tarball = null;
 
         public delegate BitArray GetClientNAKStateDelegate(ClientHost host, int numChunks, int chunkSize, TarballStreamReader tarball);
 
-        public ClientHost(string endpoint, string subscription, DirectoryInfo downloadDirectory, bool testMode, GetClientNAKStateDelegate getClientState, ulong hwm)
+        public ClientHost(string endpoint, string subscription, DirectoryInfo downloadDirectory, bool testMode, GetClientNAKStateDelegate getClientState, int hwm)
         {
             this.endpoint = endpoint;
             this.subscription = subscription;
@@ -180,16 +180,16 @@ namespace WellDunne.LanCaster
                     disk = new Socket(SocketType.PUSH);
 
                     // Set the HWM for the disk PUSH so that the PUSH blocks if the PULL can't keep up writing:
-                    disk.HWM = 100;
+                    disk.SNDHWM = 100;
                     disk.Bind("inproc://disk");
 
                     // Create the disk PULL thread:
                     Thread diskWriterThread = new Thread(new ParameterizedThreadStart(DiskWriterThread));
                     diskWriterThread.Start(ctx);
 
-                    data.HWM = hwm;
+                    data.RCVHWM = hwm;
 
-                    data.RcvBuf = 1048576UL * 128UL * 2UL;
+                    data.RcvBuf = 1048576 * 128 * 2;
                     data.Connect("tcp://" + device + ":" + port.ToString());
                     data.Subscribe(subscription, Encoding.Unicode);
 

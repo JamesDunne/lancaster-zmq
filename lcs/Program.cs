@@ -34,7 +34,7 @@ namespace WellDunne.LanCaster.Server
             int chunkSize = 1024 * 1000;
             int queueBacklog = 128;
             int ioThreads = 1;
-            ulong hwm = 32UL;
+            int hwm = 32;
 
             Queue<string> argQueue = new Queue<string>(args);
             while (argQueue.Count > 0)
@@ -181,7 +181,7 @@ namespace WellDunne.LanCaster.Server
                             Console.Error.WriteLine("-w expects a high-water mark argument");
                             return;
                         }
-                        UInt64.TryParse(argQueue.Dequeue(), out hwm);
+                        Int32.TryParse(argQueue.Dequeue(), out hwm);
                         break;
                     case "-?":
                         DisplayUsage();

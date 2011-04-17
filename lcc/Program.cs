@@ -29,7 +29,7 @@ namespace WellDunne.LanCaster.Client
                 string endpoint = "*";
                 string subscription = String.Empty;
                 int tmp;
-                ulong hwm = 32UL;
+                int hwm = 32;
                 ioThreads = 1;
 
                 Queue<string> argQueue = new Queue<string>(args);
@@ -84,7 +84,7 @@ namespace WellDunne.LanCaster.Client
                                 Console.Error.WriteLine("-w expects a high-water mark argument");
                                 return;
                             }
-                            UInt64.TryParse(argQueue.Dequeue(), out hwm);
+                            Int32.TryParse(argQueue.Dequeue(), out hwm);
                             break;
                         case "-?":
                             DisplayUsage();
