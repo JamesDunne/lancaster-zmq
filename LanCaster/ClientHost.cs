@@ -185,8 +185,8 @@ namespace WellDunne.LanCaster
 
                                     runningACKs.Add(chunkIdx);
 
-                                    // If we ran up the count or the timer, send more ACKs:
-                                    if (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 500d)
+                                    // If we ran up the timer, send more ACKs:
+                                    if (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 100d)
                                     {
                                         lastSentACKs = DateTimeOffset.UtcNow;
                                         controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, new List<int>(runningACKs)));
@@ -217,19 +217,19 @@ namespace WellDunne.LanCaster
                             ControlREQState.SendJOIN,
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.Nothing, (sock, revents) =>
                             {
+                                // If we ran up the timer, send more ACKs:
+                                if (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 100d)
+                                {
+                                    lastSentACKs = DateTimeOffset.UtcNow;
+                                    controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, new List<int>(runningACKs)));
+                                    runningACKs.Clear();
+                                }
+
                                 if (controlStateQueue.Count > 0)
                                 {
                                     var msg = controlStateQueue.Dequeue();
                                     tmpControlState = msg.Object;
                                     return msg.NewState;
-                                }
-
-                                // If we ran up the count or the timer, send more ACKs:
-                                if (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 500d)
-                                {
-                                    lastSentACKs = DateTimeOffset.UtcNow;
-                                    controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, new List<int>(runningACKs)));
-                                    runningACKs.Clear();
                                 }
 
                                 // A dummy OUT event? We don't have anything to send, so just sleep:

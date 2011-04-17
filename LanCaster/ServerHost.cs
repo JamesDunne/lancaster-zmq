@@ -82,7 +82,6 @@ namespace WellDunne.LanCaster
             private BitArray _nak;
             public BitArray NAK { get { return _nak; } set { _nak = value; /* _dirty = true; */ } }
 
-            internal Stopwatch RateTimer { get; set; }
             internal int RunningACKCount { get; set; }
             internal long LastElapsedMilliseconds { get; set; }
             public int ACKsPerMinute { get; internal set; }
@@ -91,7 +90,6 @@ namespace WellDunne.LanCaster
             {
                 this.Identity = identity;
                 this._nak = nak;
-                this.RateTimer = new Stopwatch();
                 this.ACKsPerMinute = 0;
                 this.LastElapsedMilliseconds = 0L;
                 this.RunningACKCount = 0;
@@ -221,27 +219,13 @@ namespace WellDunne.LanCaster
                                     break;
                                 }
 
+                                sock.Send("", Encoding.Unicode);
+
                                 lock (host.clientLock)
                                 {
                                     ClientState cli = host.clients[clientIdentity];
                                     cli.RunningACKCount += numIdxs;
                                     
-                                    // Measure the ACK rate in ACKs per minute:
-                                    long elapsed = cli.RateTimer.ElapsedMilliseconds - cli.LastElapsedMilliseconds;
-                                    if (elapsed >= 1000L)
-                                    {
-                                        cli.ACKsPerMinute = (int)((cli.RunningACKCount * 60000L) / elapsed);
-                                        cli.LastElapsedMilliseconds = cli.RateTimer.ElapsedMilliseconds;
-                                        cli.RunningACKCount = 0;
-                                    }
-
-                                    if (!cli.RateTimer.IsRunning)
-                                    {
-                                        cli.RateTimer.Reset();
-                                        cli.RateTimer.Start();
-                                        cli.LastElapsedMilliseconds = 0L;
-                                    }
-
                                     // ACK the packets:
                                     for (int i = 0; i < numIdxs; ++i)
                                     {
@@ -256,8 +240,6 @@ namespace WellDunne.LanCaster
                                     }
                                 }
                                 if (host.ChunksACKed != null) host.ChunksACKed(host, nakChunkIdxs);
-
-                                sock.Send("", Encoding.Unicode);
                                 break;
 
                             case "NAKS":
@@ -286,6 +268,7 @@ namespace WellDunne.LanCaster
                                     sock.Send("BADNAKS", Encoding.Unicode);
                                     break;
                                 }
+                                sock.Send("", Encoding.Unicode);
 
                                 lock (host.clientLock)
                                 {
@@ -293,7 +276,6 @@ namespace WellDunne.LanCaster
                                 }
 
                                 trace("{0}: NAKs received", clientIdentity.ToString());
-                                sock.Send("", Encoding.Unicode);
                                 break;
 
                             case "LEAVE":
@@ -308,6 +290,7 @@ namespace WellDunne.LanCaster
                                     sock.Send("ALREADY_LEFT", Encoding.Unicode);
                                     break;
                                 }
+                                sock.Send("LEFT", Encoding.Unicode);
 
                                 lock (host.clientLock)
                                 {
@@ -321,7 +304,6 @@ namespace WellDunne.LanCaster
 
                                 if (host.ClientLeft != null) host.ClientLeft(host, clientIdentity, ClientLeaveReason.Left);
 
-                                sock.Send("LEFT", Encoding.Unicode);
                                 trace("{0}: Client left", clientIdentity.ToString());
                                 break;
 
@@ -453,6 +435,18 @@ namespace WellDunne.LanCaster
                         int maxACKsPerMinute;
                         lock (clientLock)
                         {
+                            foreach (var cli in clients.Values)
+                            {
+                                // Measure the ACK rate in ACKs per minute:
+                                elapsed = sendTimer.ElapsedMilliseconds - cli.LastElapsedMilliseconds;
+                                if (elapsed >= 1000L)
+                                {
+                                    cli.ACKsPerMinute = (int)((cli.RunningACKCount * 60000L) / elapsed);
+                                    cli.LastElapsedMilliseconds = sendTimer.ElapsedMilliseconds;
+                                    cli.RunningACKCount = 0;
+                                }
+                            }
+
                             if (clients.Count > 0)
                                 maxACKsPerMinute = clients.Values.Max(cli => cli.ACKsPerMinute);
                             else
