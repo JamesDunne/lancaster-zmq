@@ -100,9 +100,15 @@ namespace WellDunne.LanCaster
             {
                 Context ctx = (Context)threadContext;
 
-                using (Socket disk = new Socket(SocketType.PULL))
+                using (Socket
+                    disk = new Socket(SocketType.PULL),
+                    diskACK = new Socket(SocketType.PUSH)
+                )
                 {
+                    disk.RCVHWM = 10;
+                    disk.RcvBuf = 1048576 * disk.RCVHWM;
                     disk.Connect("inproc://disk");
+                    diskACK.Connect("inproc://diskack");
 
                     Thread.Sleep(500);
 
@@ -118,19 +124,23 @@ namespace WellDunne.LanCaster
                         byte[] cmd = packet.Dequeue();
 
                         int chunkIdx;
+                        byte[] chunkIdxPkt;
                         byte[] chunk;
 
                         switch (cmd[0])
                         {
                             // Write to disk
                             case (byte)'W':
-                                chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
+                                chunkIdx = BitConverter.ToInt32(chunkIdxPkt = packet.Dequeue(), 0);
                                 chunk = packet.Dequeue();
                                 if (!testMode)
                                 {
                                     tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
                                     tarball.Write(chunk, 0, chunk.Length);
                                 }
+
+                                // Send the acknowledgement that this chunk was written to disk:
+                                diskACK.Send(chunkIdxPkt);
                                 break;
 
                             // Exit thread
@@ -145,11 +155,10 @@ namespace WellDunne.LanCaster
 
                     while (!done)
                     {
-                        while (ctx.Poll(pollItems) == 1)
+                        if (ctx.Poll(pollItems) == 0)
                         {
+                            Thread.Sleep(1);
                         }
-
-                        Thread.Sleep(1);
                     }
                 }
             }
@@ -172,16 +181,23 @@ namespace WellDunne.LanCaster
                 // This would be a using statement on data and ctl but we need to close and reopen sockets, which means
                 // we have to Dispose() of a socket early and create a new instance. C#, wisely so, prevents you from
                 // reassigning a using variable.
-                Socket data = null, ctl = null, disk = null;
+                Socket data = null, ctl = null, disk = null, diskACK = null;
                 try
                 {
                     data = ctx.Socket(SocketType.SUB);
                     ctl = ctx.Socket(SocketType.REQ);
                     disk = new Socket(SocketType.PUSH);
+                    diskACK = new Socket(SocketType.PULL);
 
                     // Set the HWM for the disk PUSH so that the PUSH blocks if the PULL can't keep up writing:
-                    disk.SNDHWM = 100;
+                    disk.SNDHWM = 1;
+                    disk.RCVHWM = 1;
+                    disk.SndBuf = 1048576 * 10;
                     disk.Bind("inproc://disk");
+
+                    diskACK.Bind("inproc://diskack");
+
+                    Thread.Sleep(500);
 
                     // Create the disk PULL thread:
                     Thread diskWriterThread = new Thread(new ParameterizedThreadStart(DiskWriterThread));
@@ -215,15 +231,14 @@ namespace WellDunne.LanCaster
                     try
                     {
                         // Poll for incoming messages on the data SUB socket:
-                        PollItem[] pollItems = new PollItem[2];
+                        PollItem[] pollItems = new PollItem[3];
                         pollItems[0] = data.CreatePollItem(IOMultiPlex.POLLIN);
                         pollItems[1] = ctl.CreatePollItem(IOMultiPlex.POLLIN | IOMultiPlex.POLLOUT);
+                        pollItems[2] = diskACK.CreatePollItem(IOMultiPlex.POLLIN);
 
                         ZMQStateMasheen<DataSUBState> dataFSM;
                         ZMQStateMasheen<ControlREQState> controlFSM;
                         Queue<QueuedControlMessage> controlStateQueue = new Queue<QueuedControlMessage>();
-
-                        int chunkIdx = -1;
 
                         List<int> runningACKs = new List<int>(128);
                         DateTimeOffset lastSentACKs = DateTimeOffset.UtcNow.Subtract(TimeSpan.FromSeconds(60));
@@ -244,7 +259,7 @@ namespace WellDunne.LanCaster
                                 {
                                     ++msgsRecv;
 
-                                    chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
+                                    int chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
 
                                     // Already received this chunk?
                                     if (!naks[chunkIdx])
@@ -264,6 +279,7 @@ namespace WellDunne.LanCaster
                                     disk.Send(chunk);
                                     chunk = null;
 
+#if false
                                     naks[chunkIdx] = false;
                                     ++ackCount;
 
@@ -279,6 +295,7 @@ namespace WellDunne.LanCaster
                                         controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, new List<int>(runningACKs)));
                                         runningACKs.Clear();
                                     }
+#endif
                                     return DataSUBState.Recv;
                                 }
                                 else if (cmd == "PING")
@@ -443,6 +460,31 @@ namespace WellDunne.LanCaster
                                 return ControlREQState.Nothing;
                             })
                         );
+
+                        // Disk-write acknowledgement poll input handler:
+                        pollItems[2].PollInHandler += new PollHandler((Socket sock, IOMultiPlex revents) =>
+                        {
+                            byte[] idxPkt = sock.RecvAll().Dequeue();
+
+                            int chunkIdx = BitConverter.ToInt32(idxPkt, 0);
+                            //Console.WriteLine("Disk write {0} complete", chunkIdx);
+                            naks[chunkIdx] = false;
+                            ++ackCount;
+
+                            // Notify the host that a chunk was written:
+                            if (ChunkWritten != null) ChunkWritten(this, chunkIdx);
+
+                            runningACKs.Add(chunkIdx);
+
+                            // If we ran up the timer, send more ACKs:
+                            if (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 100d)
+                            {
+                                lastSentACKs = DateTimeOffset.UtcNow;
+                                controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, new List<int>(runningACKs)));
+                                runningACKs.Clear();
+                            }
+
+                        });
 
                         pollItems[0].PollInHandler += new PollHandler(dataFSM.StateMasheen);
                         pollItems[1].PollInHandler += new PollHandler(controlFSM.StateMasheen);
