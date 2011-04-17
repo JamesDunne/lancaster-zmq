@@ -186,6 +186,34 @@ namespace WellDunne.LanCaster.Client
 
                 string backup = new string('\b', Console.WindowWidth);
                 Console.Write(backup);
+#if true
+                string spaces = new string(' ', Console.WindowWidth - 1);
+                Console.Write(spaces);
+                Console.Write(backup);
+                // Write ACK rate:
+                {
+                    int bps = (host.ChunksPerMinute * (host.ChunkSize / 60));
+                    string name;
+                    double rate;
+                    if (bps >= 1048576)
+                    {
+                        rate = bps / 1048576d;
+                        name = "MB/s";
+                    }
+                    else if (bps >= 1024)
+                    {
+                        rate = bps / 1024d;
+                        name = "KB/s";
+                    }
+                    else
+                    {
+                        rate = bps;
+                        name = " B/s";
+                    }
+                    Console.Write("{0,8} {1}", rate.ToString("#,##0.00"), name);
+                }
+                Console.WriteLine();
+#endif
                 Console.Write('[');
 
                 IEnumerator boolACKs = acks.GetEnumerator();

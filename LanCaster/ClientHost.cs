@@ -57,6 +57,8 @@ namespace WellDunne.LanCaster
         }
 
         public bool Completed { get; private set; }
+        public int ChunksPerMinute { get; private set; }
+        public int ChunkSize { get { return this.chunkSize; } }
 
         private enum DataSUBState
         {
@@ -129,6 +131,10 @@ namespace WellDunne.LanCaster
                     int ackCount = -1;
                     byte[] nakBuf = null;
 
+                    Stopwatch recvTimer = Stopwatch.StartNew();
+                    long lastElapsedMilliseconds = recvTimer.ElapsedMilliseconds;
+                    int msgsRecv = 0;
+
                     try
                     {
                         // Poll for incoming messages on the data SUB socket:
@@ -159,6 +165,8 @@ namespace WellDunne.LanCaster
 
                                 if ((naks != null) && (cmd == "DATA"))
                                 {
+                                    ++msgsRecv;
+
                                     chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
 
                                     // Already received this chunk?
@@ -171,6 +179,10 @@ namespace WellDunne.LanCaster
                                     trace("RECV {0}", chunkIdx);
 
                                     byte[] chunk = packet.Dequeue();
+                                    // TODO: possibly queue up the disk writes with PUSH/PULL and an HWM on
+                                    // a separate thread to maintain as constant disk write throughput as we
+                                    // can get... The HWM will enforce the PUSHer to block when the PULLer
+                                    // cannot receive yet.
                                     if (!testMode)
                                     {
                                         tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
@@ -180,6 +192,7 @@ namespace WellDunne.LanCaster
 
                                     naks[chunkIdx] = false;
                                     ++ackCount;
+
                                     // Notify the host that a chunk was written:
                                     if (ChunkWritten != null) ChunkWritten(this, chunkIdx);
 
@@ -382,6 +395,22 @@ namespace WellDunne.LanCaster
                             {
                             }
 
+                            // Measure our message send rate per minute:
+                            long elapsed = recvTimer.ElapsedMilliseconds - lastElapsedMilliseconds;
+                            if (elapsed >= 500L)
+                            {
+                                ChunksPerMinute = (int)((msgsRecv * 60000L) / elapsed);
+                                lastElapsedMilliseconds = recvTimer.ElapsedMilliseconds;
+                                msgsRecv = 0;
+                            }
+
+                            if (!recvTimer.IsRunning)
+                            {
+                                recvTimer.Reset();
+                                recvTimer.Start();
+                                lastElapsedMilliseconds = 0L;
+                            }
+                            
                             if (ackCount >= numChunks)
                             {
                                 Completed = true;

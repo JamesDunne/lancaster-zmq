@@ -149,7 +149,7 @@ namespace WellDunne.LanCaster
                         bool clientExists;
                         lock (host.clientLock)
                         {
-                            host.clientTimeout[clientIdentity] = DateTimeOffset.UtcNow.AddSeconds(10);
+                            host.clientTimeout[clientIdentity] = DateTimeOffset.UtcNow.AddSeconds(2);
                             clientExists = host.clients.ContainsKey(clientIdentity);
                         }
 
@@ -414,10 +414,9 @@ namespace WellDunne.LanCaster
                             }
                         }
 
-#if true
                         // Measure our message send rate per minute:
                         long elapsed = sendTimer.ElapsedMilliseconds - lastElapsedMilliseconds;
-                        if (elapsed >= 1000L)
+                        if (elapsed >= 500L)
                         {
                             msgsPerMinute = (int)((msgsSent * 60000L) / elapsed);
                             lastElapsedMilliseconds = sendTimer.ElapsedMilliseconds;
@@ -439,7 +438,7 @@ namespace WellDunne.LanCaster
                             {
                                 // Measure the ACK rate in ACKs per minute:
                                 elapsed = sendTimer.ElapsedMilliseconds - cli.LastElapsedMilliseconds;
-                                if (elapsed >= 1000L)
+                                if (elapsed >= 500L)
                                 {
                                     cli.ACKsPerMinute = (int)((cli.RunningACKCount * 60000L) / elapsed);
                                     cli.LastElapsedMilliseconds = sendTimer.ElapsedMilliseconds;
@@ -455,21 +454,15 @@ namespace WellDunne.LanCaster
 
 #if true
                         // Don't send faster than our fastest receiver can receive:
-                        if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute >= (maxACKsPerMinute * 120 / 100)))
+                        if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute >= (maxACKsPerMinute * 2)))
                         {
-                            Thread.Sleep(1);
-                            continue;
-                        }
-#endif
-#endif
-
-#if false
-                        // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least `queueBacklog` chunks:
-                        if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= queueBacklog)
-                        {
-                            //trace("Still awaiting ACKs on {0} packets", awaitingClientACKs.Count);
-                            Thread.Sleep(1);
-                            continue;
+                            // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least `queueBacklog` chunks:
+                            if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= queueBacklog)
+                            {
+                                //trace("Still awaiting ACKs on {0} packets", awaitingClientACKs.Count);
+                                Thread.Sleep(1);
+                                continue;
+                            }
                         }
 #endif
 
@@ -490,7 +483,9 @@ namespace WellDunne.LanCaster
                                 let ch = cli.client.NAK
                                     .Cast<bool>()
                                     .Select((b, i) => new { b, i })
-                                    .FirstOrDefault(x => ((!awaitingClientACKs.ContainsKey(x.i)) || (awaitingClientACKs[x.i].Count == 0)) && x.b)
+                                    .FirstOrDefault(x => 
+                                        ((!awaitingClientACKs.ContainsKey(x.i)) || (awaitingClientACKs[x.i].Count == 0)) &&
+                                        x.b)
                                 where ch != null
                                 select (int?)ch.i
                             ).FirstOrDefault();
@@ -504,18 +499,6 @@ namespace WellDunne.LanCaster
                         }
 
                         // Send the current chunk:
-                        // FIXME: timeouts on await!
-                        bool notAwaiting = true;
-                        lock (clientLock)
-                        {
-                            notAwaiting = (!awaitingClientACKs.ContainsKey(chunkIdx.Value) || (awaitingClientACKs[chunkIdx.Value].Count == 0));
-                        }
-
-                        if (!notAwaiting)
-                        {
-                            Thread.Sleep(1);
-                            continue;
-                        }
 
                         // Chunk index first:
                         trace("SEND chunk: {0}", chunkIdx.Value);
