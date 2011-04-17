@@ -153,8 +153,9 @@ namespace WellDunne.LanCaster.Client
         private int lastChunkBlock = -1;
         private int lastWrittenChunk = 0;
         private bool wroteLegend = false;
+        private DateTimeOffset lastDisplayTime;
 
-        void RenderProgress(ClientHost host)
+        void RenderProgress(ClientHost host, bool display)
         {
             if (numChunks == 0) return;
 
@@ -166,13 +167,15 @@ namespace WellDunne.LanCaster.Client
             int subblocks = usableWidth / numChunks;
             int subblocksRem = usableWidth % numChunks;
 
-            bool display = false;
-
-            if (blocks > 0) display = (lastChunkBlock != (lastChunkBlock = lastWrittenChunk / blocks));
-            else display = true;
+            if (!display)
+            {
+                if (blocks > 0) display = (DateTimeOffset.UtcNow.Subtract(lastDisplayTime).TotalMilliseconds >= 500d) || (lastChunkBlock != (lastChunkBlock = lastWrittenChunk / blocks));
+                else display = true;
+            }
 
             if (display)
             {
+                lastDisplayTime = DateTimeOffset.UtcNow;
                 if (!wroteLegend)
                 {
                     Console.WriteLine();
@@ -263,7 +266,7 @@ namespace WellDunne.LanCaster.Client
 
             lastWrittenChunk = chunkIdx;
 
-            RenderProgress(host);
+            RenderProgress(host, false);
         }
 
         BitArray GetClientNAKState(ClientHost host, int numChunks, int chunkSize, TarballStreamReader tarball)

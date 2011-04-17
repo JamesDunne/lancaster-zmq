@@ -261,6 +261,7 @@ namespace WellDunne.LanCaster.Server
             RenderProgress(host, true);
         }
 
+        private DateTimeOffset lastDisplayTime;
         private int lastChunkBlock = -1;
         private bool wroteLegend = false;
         private int lastWrittenChunk = -1;
@@ -280,12 +281,13 @@ namespace WellDunne.LanCaster.Server
 
             if (!display)
             {
-                if (blocks > 0) display = (lastChunkBlock != (lastChunkBlock = lastWrittenChunk / blocks));
+                if (blocks > 0) display = (DateTimeOffset.UtcNow.Subtract(lastDisplayTime).TotalMilliseconds >= 500d) || (lastChunkBlock != (lastChunkBlock = lastWrittenChunk / blocks));
                 else display = true;
             }
 
             if (display)
             {
+                lastDisplayTime = DateTimeOffset.UtcNow;
                 if (!wroteLegend)
                 {
                     Console.WriteLine();
@@ -304,7 +306,7 @@ namespace WellDunne.LanCaster.Server
                 // Write ACK rates:
                 foreach (var cli in clients)
                 {
-                    Console.Write("{0,12} cpm", cli.ACKsPerMinute.ToString("##,0"));
+                    Console.Write("{0,12} Bps", (cli.ACKsPerMinute * (host.ChunkSize / 60)).ToString("###,###,###,##0"));
                 }
                 Console.WriteLine();
 #endif

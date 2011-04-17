@@ -230,19 +230,12 @@ namespace WellDunne.LanCaster
                                     long elapsed = cli.RateTimer.ElapsedMilliseconds - cli.LastElapsedMilliseconds;
                                     if (elapsed >= 1000L)
                                     {
-                                        cli.ACKsPerMinute = (int)((cli.RunningACKCount * 1000L * 60L) / elapsed);
+                                        cli.ACKsPerMinute = (int)((cli.RunningACKCount * 60000L) / elapsed);
                                         cli.LastElapsedMilliseconds = cli.RateTimer.ElapsedMilliseconds;
                                         cli.RunningACKCount = 0;
                                     }
 
-                                    if (cli.RateTimer.ElapsedMilliseconds >= 60000L)
-                                    {
-                                        // 60 seconds elapsed? Reset the timer so it doesn't get carried away:
-                                        cli.RateTimer.Reset();
-                                        cli.RateTimer.Start();
-                                        cli.LastElapsedMilliseconds = 0L;
-                                    }
-                                    else if (!cli.RateTimer.IsRunning)
+                                    if (!cli.RateTimer.IsRunning)
                                     {
                                         cli.RateTimer.Reset();
                                         cli.RateTimer.Start();
@@ -444,19 +437,12 @@ namespace WellDunne.LanCaster
                         long elapsed = sendTimer.ElapsedMilliseconds - lastElapsedMilliseconds;
                         if (elapsed >= 1000L)
                         {
-                            msgsPerMinute = (int)((msgsSent * 1000L * 60L) / elapsed);
+                            msgsPerMinute = (int)((msgsSent * 60000L) / elapsed);
                             lastElapsedMilliseconds = sendTimer.ElapsedMilliseconds;
                             msgsSent = 0;
                         }
 
-                        if (sendTimer.ElapsedMilliseconds >= 60000L)
-                        {
-                            // 60 seconds elapsed? Reset the timer so it doesn't get carried away:
-                            sendTimer.Reset();
-                            sendTimer.Start();
-                            lastElapsedMilliseconds = 0L;
-                        }
-                        else if (!sendTimer.IsRunning)
+                        if (!sendTimer.IsRunning)
                         {
                             sendTimer.Reset();
                             sendTimer.Start();
@@ -475,7 +461,7 @@ namespace WellDunne.LanCaster
 
 #if true
                         // Don't send faster than our fastest receiver can receive:
-                        if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute >= (maxACKsPerMinute * 200 / 100)))
+                        if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute >= (maxACKsPerMinute * 120 / 100)))
                         {
                             Thread.Sleep(1);
                             continue;

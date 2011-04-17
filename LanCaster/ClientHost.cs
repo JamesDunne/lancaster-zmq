@@ -186,7 +186,7 @@ namespace WellDunne.LanCaster
                                     runningACKs.Add(chunkIdx);
 
                                     // If we ran up the count or the timer, send more ACKs:
-                                    if ((runningACKs.Count >= 128) || (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 250d))
+                                    if (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 500d)
                                     {
                                         lastSentACKs = DateTimeOffset.UtcNow;
                                         controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, new List<int>(runningACKs)));
@@ -225,7 +225,7 @@ namespace WellDunne.LanCaster
                                 }
 
                                 // If we ran up the count or the timer, send more ACKs:
-                                if ((runningACKs.Count >= 128) || (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 250d))
+                                if (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 500d)
                                 {
                                     lastSentACKs = DateTimeOffset.UtcNow;
                                     controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, new List<int>(runningACKs)));
@@ -233,7 +233,7 @@ namespace WellDunne.LanCaster
                                 }
 
                                 // A dummy OUT event? We don't have anything to send, so just sleep:
-                                if ((revents & IOMultiPlex.POLLOUT) == IOMultiPlex.POLLOUT) Thread.Sleep(20);
+                                if ((revents & IOMultiPlex.POLLOUT) == IOMultiPlex.POLLOUT) Thread.Sleep(1);
                                 return ControlREQState.Nothing;
                             }),
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendALIVE, (sock, revents) =>
@@ -378,7 +378,7 @@ namespace WellDunne.LanCaster
                             }
 
                             trace("POLL");
-                            while ((ctx.Poll(pollItems, 100000) == 1) && (ctl != null))
+                            while ((ctx.Poll(pollItems, 10000) == 1) && (ctl != null))
                             {
                             }
 
