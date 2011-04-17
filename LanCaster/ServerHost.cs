@@ -102,12 +102,24 @@ namespace WellDunne.LanCaster
             }
         }
 
+        private sealed class ChunkState
+        {
+            public int TotalAwaitingClients { get; set; }
+            public HashSet<Guid> ClientsRemaining { get; set; }
+
+            public ChunkState()
+            {
+                TotalAwaitingClients = 0;
+                ClientsRemaining = new HashSet<Guid>();
+            }
+        }
+
         //private BitArray currentNAKs;
         private int numChunks;
         private int numBitArrayBytes;
         private Dictionary<Guid, ClientState> clients = new Dictionary<Guid, ClientState>();
         private Dictionary<Guid, DateTimeOffset[]> clientTimeout = new Dictionary<Guid, DateTimeOffset[]>();
-        private Dictionary<int, HashSet<Guid>> awaitingClientACKs = new Dictionary<int, HashSet<Guid>>();
+        private Dictionary<int, ChunkState> chunkState = new Dictionary<int, ChunkState>();
         private int queueBacklog;
         private int hwm;
         private bool isRunning;
@@ -239,9 +251,9 @@ namespace WellDunne.LanCaster
                                         nakChunkIdxs[i] = idx;
 
                                         cli.NAK[idx] = false;
-                                        if (host.awaitingClientACKs.ContainsKey(idx))
+                                        if (host.chunkState.ContainsKey(idx))
                                         {
-                                            host.awaitingClientACKs[idx].Remove(clientIdentity);
+                                            host.chunkState[idx].ClientsRemaining.Remove(clientIdentity);
                                         }
                                     }
                                 }
@@ -303,8 +315,11 @@ namespace WellDunne.LanCaster
                                     // Remove the client's state record:
                                     host.clients.Remove(clientIdentity);
 
-                                    foreach (HashSet<Guid> awaiter in host.awaitingClientACKs.Values)
-                                        awaiter.Remove(clientIdentity);
+                                    foreach (ChunkState cs in host.chunkState.Values)
+                                    {
+                                        cs.ClientsRemaining.Remove(clientIdentity);
+                                        --cs.TotalAwaitingClients;
+                                    }
                                     host.clientTimeout.Remove(clientIdentity);
                                 }
 
@@ -414,8 +429,11 @@ namespace WellDunne.LanCaster
                             {
                                 sickOfAwaitingClient.Value[1] = DateTimeOffset.UtcNow.AddSeconds(2);
                                 // We're sick of waiting on this client's ACK, maybe they lost the packet(s).
-                                foreach (HashSet<Guid> awaiter in awaitingClientACKs.Values)
-                                    awaiter.Remove(sickOfAwaitingClient.Key);
+                                foreach (ChunkState cs in chunkState.Values)
+                                {
+                                    cs.ClientsRemaining.Remove(sickOfAwaitingClient.Key);
+                                    --cs.TotalAwaitingClients;
+                                }
                             }
 
                             KeyValuePair<Guid, DateTimeOffset[]> timedOutClient = clientTimeout.FirstOrDefault(dt => dt.Value[0] < rightMeow);
@@ -472,7 +490,7 @@ namespace WellDunne.LanCaster
                         if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute >= (maxACKsPerMinute * 2)))
                         {
                             // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least `queueBacklog` chunks:
-                            if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= queueBacklog)
+                            if (chunkState.Values.Count(e => e.ClientsRemaining.Count > 0) >= queueBacklog)
                             {
                                 //trace("Still awaiting ACKs on {0} packets", awaitingClientACKs.Count);
                                 Thread.Sleep(1);
@@ -487,7 +505,7 @@ namespace WellDunne.LanCaster
                             // Order the clients by number of chunks left to receive:
                             var clientOrder = (
                                 from cli in clients.Values
-                                let naks = cli.NAK.Cast<bool>().Count(b => b)
+                                let naks = cli.NAK.Cast<bool>().Take(numChunks).Count(b => b)
                                 orderby naks ascending
                                 select new { client = cli, naks }
                             );
@@ -495,11 +513,10 @@ namespace WellDunne.LanCaster
                             chunkIdx = (
                                 from cli in clientOrder
                                 // Find the first NAK for the client with the least amount of NAKs to receive:
-                                let ch = cli.client.NAK
-                                    .Cast<bool>()
+                                let ch = cli.client.NAK.Cast<bool>().Take(numChunks)
                                     .Select((b, i) => new { b, i })
                                     .FirstOrDefault(x => 
-                                        ((!awaitingClientACKs.ContainsKey(x.i)) || (awaitingClientACKs[x.i].Count == 0)) &&
+                                        ((!chunkState.ContainsKey(x.i)) || (!chunkState[x.i].ClientsRemaining.Contains(cli.client.Identity))) &&
                                         x.b)
                                 where ch != null
                                 select (int?)ch.i
@@ -556,20 +573,21 @@ namespace WellDunne.LanCaster
                         lock (clientLock)
                         {
                             // Wait for an ACK from all the clients who have this chunk currently NAKed:
-                            HashSet<Guid> awaiter;
-                            if (!awaitingClientACKs.ContainsKey(chunkIdx.Value))
+                            ChunkState cs;
+                            if (!chunkState.ContainsKey(chunkIdx.Value))
                             {
-                                awaiter = awaitingClientACKs[chunkIdx.Value] = new HashSet<Guid>();
+                                cs = chunkState[chunkIdx.Value] = new ChunkState();
                             }
                             else
                             {
-                                (awaiter = awaitingClientACKs[chunkIdx.Value]).Clear();
+                                (cs = chunkState[chunkIdx.Value]).ClientsRemaining.Clear();
                             }
 
                             foreach (var cli in clients.Values.Where(x => x.NAK[chunkIdx.Value]))
                             {
                                 //trace("Awaiting ACK from {0} for chunk {1}", cli.Identity.ToString(), chunkIdx.Value);
-                                awaiter.Add(cli.Identity);
+                                cs.ClientsRemaining.Add(cli.Identity);
+                                ++cs.TotalAwaitingClients;
                             }
                         }
 

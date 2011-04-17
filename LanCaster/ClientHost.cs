@@ -398,14 +398,17 @@ namespace WellDunne.LanCaster
                                         tarball.Dispose();
                                         tarball = null;
                                     }
+                                }
 
+                                lock (tarballLock)
+                                {
                                     // Create the tarball reader that writes the files locally:
                                     tarball = new TarballStreamReader(downloadDirectory, tbes);
 
                                     // Get our local download state:
                                     naks = getClientState(this, numChunks, chunkSize, tarball);
                                 }
-                                ackCount = naks.Cast<bool>().Count(b => !b);
+                                ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
 
                                 // Send our NAKs:
                                 ctl.SendMore(ctl.Identity);
@@ -464,7 +467,7 @@ namespace WellDunne.LanCaster
                             //Console.WriteLine("Disk write {0} complete", chunkIdx);
                             naks[chunkIdx] = false;
                             
-                            ackCount = naks.Cast<bool>().Count(b => !b);
+                            ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
                             //++ackCount;
 
                             // Notify the host that a chunk was written:

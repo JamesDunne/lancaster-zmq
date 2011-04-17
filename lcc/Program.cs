@@ -228,7 +228,7 @@ namespace WellDunne.LanCaster.Client
 #endif
                 Console.Write('[');
 
-                IEnumerator boolACKs = host.NAKs.GetEnumerator();
+                IEnumerator<bool> boolACKs = host.NAKs.Cast<bool>().Take(numChunks).GetEnumerator();
                 if (blocks > 0)
                 {
                     int lastc = 0, c = 0, subc = 0;
@@ -247,7 +247,7 @@ namespace WellDunne.LanCaster.Client
                         bool allOff = false;
                         for (int i = 0; (i < numBlocks) && boolACKs.MoveNext(); ++i)
                         {
-                            bool curr = !(bool)boolACKs.Current;
+                            bool curr = !boolACKs.Current;
                             allOn = allOn & curr;
                             allOff = allOff | curr;
                         }
@@ -275,7 +275,7 @@ namespace WellDunne.LanCaster.Client
                         }
 
                         if (!boolACKs.MoveNext()) break;
-                        bool curr = (bool)boolACKs.Current;
+                        bool curr = boolACKs.Current;
 
                         for (int x = lastc; (x < c) && (c < usableWidth); ++x)
                         {
