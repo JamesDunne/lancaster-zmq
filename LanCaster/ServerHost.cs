@@ -133,6 +133,9 @@ namespace WellDunne.LanCaster
                 using (Socket ctl = ctx.Socket(SocketType.REP))
                 {
                     // Bind the control reply socket:
+                    ctl.RcvBuf = 1048576 * 16;
+                    ctl.SndBuf = 1048576 * 2;
+                    ctl.RCVHWM = 50;
                     ctl.Bind("tcp://" + host.device + ":" + (host.port + 1).ToString());
 
                     // Wait for the sockets to bind:
@@ -172,7 +175,7 @@ namespace WellDunne.LanCaster
                                     host.clients.Add(clientIdentity, new ClientState(clientIdentity, new BitArray(host.numBitArrayBytes << 3)));
                                 }
 
-                                // TODO: send out the tarball descriptor:
+                                // Send out the tarball descriptor:
                                 sock.SendMore("JOINED", Encoding.Unicode);
 
                                 ReadOnlyCollection<FileInfo> files = host.tarball.Files;
