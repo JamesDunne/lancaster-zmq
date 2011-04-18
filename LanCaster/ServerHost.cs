@@ -27,13 +27,12 @@ namespace WellDunne.LanCaster
         private uint port;
         private string device;
 
-        public ServerHost(Transport tsp, string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize, int queueBacklog, int hwm, bool testMode)
+        public ServerHost(Transport tsp, string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize, int hwm, bool testMode)
         {
             if (String.IsNullOrEmpty(endpoint)) throw new ArgumentNullException("endpoint");
             if (String.IsNullOrEmpty(subscription)) throw new ArgumentNullException("subscription");
             if (tarball == null) throw new ArgumentNullException("tarball");
             if (String.IsNullOrEmpty(basePath)) throw new ArgumentNullException("basePath");
-            if (queueBacklog < 1) throw new ArgumentOutOfRangeException("queueBacklog", "queueBacklog must be 1 or greater");
 
             this.tsp = tsp;
             this.endpoint = endpoint;
@@ -41,7 +40,6 @@ namespace WellDunne.LanCaster
             this.tarball = tarball;
             this.basePath = basePath;
             this.chunkSize = chunkSize;
-            this.queueBacklog = queueBacklog;
             this.testMode = testMode;
 
             this.lastChunkSize = (int)(tarball.Length % chunkSize);
@@ -84,43 +82,31 @@ namespace WellDunne.LanCaster
         public sealed class ClientState
         {
             public Guid Identity { get; private set; }
+            public BitArray NAK { get; internal set; }
+            public int ACKsPerMinute { get; internal set; }
+            public DateTimeOffset LastMessageTime { get; internal set; }
 
-            private BitArray _nak;
-            public BitArray NAK { get { return _nak; } set { _nak = value; /* _dirty = true; */ } }
+            public bool HasNAKs { get { return NAK != null; } }
+            public bool IsTimedOut { get { return (DateTimeOffset.UtcNow.Subtract(LastMessageTime).TotalSeconds >= 2); } }
+            public bool IsRemovable { get { return (DateTimeOffset.UtcNow.Subtract(LastMessageTime).TotalSeconds >= 60); } }
 
             internal int RunningACKCount { get; set; }
             internal long LastElapsedMilliseconds { get; set; }
-            public int ACKsPerMinute { get; internal set; }
 
-            public ClientState(Guid identity, BitArray nak)
+            public ClientState(Guid identity)
             {
                 this.Identity = identity;
-                this._nak = nak;
+                this.NAK = null;
                 this.ACKsPerMinute = 0;
                 this.LastElapsedMilliseconds = 0L;
                 this.RunningACKCount = 0;
+                this.LastMessageTime = DateTimeOffset.UtcNow;
             }
         }
 
-        private sealed class ChunkState
-        {
-            public int TotalAwaitingClients { get; set; }
-            public HashSet<Guid> ClientsRemaining { get; set; }
-
-            public ChunkState()
-            {
-                TotalAwaitingClients = 0;
-                ClientsRemaining = new HashSet<Guid>();
-            }
-        }
-
-        //private BitArray currentNAKs;
         private int numChunks;
         private int numBitArrayBytes;
         private Dictionary<Guid, ClientState> clients = new Dictionary<Guid, ClientState>();
-        private Dictionary<Guid, DateTimeOffset[]> clientTimeout = new Dictionary<Guid, DateTimeOffset[]>();
-        private Dictionary<int, ChunkState> chunkState = new Dictionary<int, ChunkState>();
-        private int queueBacklog;
         private int hwm;
         private bool isRunning;
 
@@ -163,12 +149,25 @@ namespace WellDunne.LanCaster
                     {
                         Queue<byte[]> request = sock.RecvAll();
 
+                        // Bad message?
+                        if (request.Count == 0) return;
+
                         Guid clientIdentity = new Guid(request.Dequeue().Skip(1).ToArray());
-                        bool clientExists;
+                        ClientState client;
+
                         lock (host.clientLock)
                         {
-                            host.clientTimeout[clientIdentity] = new DateTimeOffset[2] { DateTimeOffset.UtcNow.AddSeconds(5), DateTimeOffset.UtcNow.AddSeconds(2) };
-                            clientExists = host.clients.ContainsKey(clientIdentity);
+                            if (!host.clients.ContainsKey(clientIdentity))
+                            {
+                                client = new ClientState(clientIdentity);
+                                host.clients.Add(clientIdentity, client);
+                            }
+                            else
+                            {
+                                client = host.clients[clientIdentity];
+                                // Last message received time was now:
+                                client.LastMessageTime = DateTimeOffset.UtcNow;
+                            }
                         }
 
                         string cmd = Encoding.Unicode.GetString(request.Dequeue());
@@ -178,19 +177,6 @@ namespace WellDunne.LanCaster
                         switch (cmd)
                         {
                             case "JOIN":
-                                if (clientExists)
-                                {
-                                    trace("{0}: Client already joined", clientIdentity.ToString());
-                                    sock.Send("ALREADY_JOINED", Encoding.Unicode);
-                                    break;
-                                }
-
-                                lock (host.clientLock)
-                                {
-                                    host.clients.Add(clientIdentity, new ClientState(clientIdentity, new BitArray(host.numBitArrayBytes << 3)));
-                                }
-
-                                // TODO: send out the tarball descriptor:
                                 sock.SendMore("JOINED", Encoding.Unicode);
 
                                 ReadOnlyCollection<FileInfo> files = host.tarball.Files;
@@ -212,76 +198,11 @@ namespace WellDunne.LanCaster
                                 if (host.ClientJoined != null) host.ClientJoined(host, clientIdentity);
                                 break;
 
-                            case "ACK":
-                                if (!clientExists)
-                                {
-                                    lock (host.clientLock)
-                                    {
-                                        host.clientTimeout.Remove(clientIdentity);
-                                    }
-                                    trace("{0}: Client not joined", clientIdentity.ToString());
-                                    sock.Send("NOTJOINED", Encoding.Unicode);
-                                    break;
-                                }
-
-                                trace("{0}: ACK received", clientIdentity.ToString());
-
-                                int numIdxs = BitConverter.ToInt32(request.Dequeue(), 0);
-
-                                int[] nakChunkIdxs = new int[numIdxs];
-
-                                byte[] idxBytes = request.Dequeue();
-                                if (idxBytes.Length != (numIdxs * 4))
-                                {
-                                    sock.Send("BADACK", Encoding.Unicode);
-                                    break;
-                                }
-
-                                sock.Send("", Encoding.Unicode);
-
-                                lock (host.clientLock)
-                                {
-                                    ClientState cli = host.clients[clientIdentity];
-                                    cli.RunningACKCount += numIdxs;
-                                    
-                                    // ACK the packets:
-                                    for (int i = 0; i < numIdxs; ++i)
-                                    {
-                                        int idx = BitConverter.ToInt32(idxBytes, i * 4);
-                                        nakChunkIdxs[i] = idx;
-
-                                        cli.NAK[idx] = false;
-                                        if (host.chunkState.ContainsKey(idx))
-                                        {
-                                            host.chunkState[idx].ClientsRemaining.Remove(clientIdentity);
-                                        }
-                                    }
-                                }
-                                if (host.ChunksACKed != null) host.ChunksACKed(host, nakChunkIdxs);
-                                break;
-
                             case "NAKS":
                                 // Receive the client's current NAK:
-                                if (!clientExists)
-                                {
-                                    lock (host.clientLock)
-                                    {
-                                        host.clientTimeout.Remove(clientIdentity);
-                                    }
-
-                                    trace("{0}: Client not joined", clientIdentity.ToString());
-                                    sock.Send("NOTJOINED", Encoding.Unicode);
-                                    break;
-                                }
-
                                 byte[] tmp = request.Dequeue();
                                 if (tmp.Length != host.numBitArrayBytes)
                                 {
-                                    lock (host.clientLock)
-                                    {
-                                        host.clientTimeout.Remove(clientIdentity);
-                                    }
-
                                     trace("{0}: Bad NAKs", clientIdentity.ToString());
                                     sock.Send("BADNAKS", Encoding.Unicode);
                                     break;
@@ -290,37 +211,19 @@ namespace WellDunne.LanCaster
 
                                 lock (host.clientLock)
                                 {
-                                    host.clients[clientIdentity].NAK = new BitArray(tmp);
+                                    client.NAK = new BitArray(tmp);
                                 }
 
                                 trace("{0}: NAKs received", clientIdentity.ToString());
                                 break;
 
                             case "LEAVE":
-                                if (!clientExists)
-                                {
-                                    lock (host.clientLock)
-                                    {
-                                        host.clientTimeout.Remove(clientIdentity);
-                                    }
-
-                                    trace("{0}: Client already left!", clientIdentity.ToString());
-                                    sock.Send("ALREADY_LEFT", Encoding.Unicode);
-                                    break;
-                                }
                                 sock.Send("LEFT", Encoding.Unicode);
 
                                 lock (host.clientLock)
                                 {
                                     // Remove the client's state record:
                                     host.clients.Remove(clientIdentity);
-
-                                    foreach (ChunkState cs in host.chunkState.Values)
-                                    {
-                                        cs.ClientsRemaining.Remove(clientIdentity);
-                                        --cs.TotalAwaitingClients;
-                                    }
-                                    host.clientTimeout.Remove(clientIdentity);
                                 }
 
                                 if (host.ClientLeft != null) host.ClientLeft(host, clientIdentity, ClientLeaveReason.Left);
@@ -329,14 +232,7 @@ namespace WellDunne.LanCaster
                                 break;
 
                             case "ALIVE":
-                                if (!clientExists)
-                                {
-                                    trace("{0}: WHOAREYOU", clientIdentity.ToString());
-                                    byte[] sendIdentity = new byte[1] { (byte)'@' }.Concat(clientIdentity.ToByteArray()).ToArray();
-                                    sock.Send("WHOAREYOU", Encoding.Unicode);
-                                    break;
-                                }
-
+                                // Fantastic.
                                 sock.Send("", Encoding.Unicode);
                                 break;
 
@@ -377,7 +273,7 @@ namespace WellDunne.LanCaster
 
                     // TODO: use epgm:// protocol for multicast efficiency when we build that support into libzmq.dll for Windows.
                     //data.Rate = 20000L;
-                    data.SndBuf = chunkSize * queueBacklog * 8;
+                    data.SndBuf = chunkSize * hwm * 8;
                     data.StringToIdentity(subscription, Encoding.Unicode);
                     data.Bind(tsp.ToString().ToLower() + "://" + device + ":" + port);
 
@@ -393,7 +289,6 @@ namespace WellDunne.LanCaster
                     //PollItem[] pollItems = new PollItem[1];
                     //pollItems[0] = data.CreatePollItem(IOMultiPlex.POLLOUT);
 
-                    int? chunkIdx = null;
                     byte[] buf = new byte[chunkSize];
 
                     DateTimeOffset lastPing = DateTimeOffset.UtcNow;
@@ -415,32 +310,19 @@ namespace WellDunne.LanCaster
                             trace("PING");
                             //if (ctx.Poll(pollItems) == 1)
                             //{
-                                data.SendMore(this.subscription, Encoding.Unicode);
-                                data.Send("PING", Encoding.Unicode);
+                            data.SendMore(this.subscription, Encoding.Unicode);
+                            data.Send("PING", Encoding.Unicode);
                             //}
                         }
 
                         lock (clientLock)
                         {
-                            // Anyone timed out yet?
+                            // Anyone fully timed out yet?
                             DateTimeOffset rightMeow = DateTimeOffset.UtcNow;
-                            KeyValuePair<Guid, DateTimeOffset[]> sickOfAwaitingClient = clientTimeout.FirstOrDefault(dt => dt.Value[1] < rightMeow);
-                            if (sickOfAwaitingClient.Key != Guid.Empty)
-                            {
-                                sickOfAwaitingClient.Value[1] = DateTimeOffset.UtcNow.AddSeconds(2);
-                                // We're sick of waiting on this client's ACK, maybe they lost the packet(s).
-                                foreach (ChunkState cs in chunkState.Values)
-                                {
-                                    cs.ClientsRemaining.Remove(sickOfAwaitingClient.Key);
-                                    --cs.TotalAwaitingClients;
-                                }
-                            }
 
-                            KeyValuePair<Guid, DateTimeOffset[]> timedOutClient = clientTimeout.FirstOrDefault(dt => dt.Value[0] < rightMeow);
-                            if (timedOutClient.Key != Guid.Empty)
+                            foreach (KeyValuePair<Guid, ClientState> timedOutClient in clients.Where(cli => cli.Value.IsRemovable))
                             {
                                 // Yes, remove that client:
-                                clientTimeout.Remove(timedOutClient.Key);
                                 clients.Remove(timedOutClient.Key);
 
                                 if (ClientLeft != null) ClientLeft(this, timedOutClient.Key, ClientLeaveReason.TimedOut);
@@ -463,11 +345,10 @@ namespace WellDunne.LanCaster
                             lastElapsedMilliseconds = 0L;
                         }
 
-                        // Find the ACKs/min rate of our fastest receiver:
-                        int maxACKsPerMinute;
+                        // Find the ACKs/min rates per client:
                         lock (clientLock)
                         {
-                            foreach (var cli in clients.Values)
+                            foreach (var cli in clients.Values.Where(cl => cl.HasNAKs && !cl.IsTimedOut))
                             {
                                 // Measure the ACK rate in ACKs per minute:
                                 elapsed = sendTimer.ElapsedMilliseconds - cli.LastElapsedMilliseconds;
@@ -478,120 +359,79 @@ namespace WellDunne.LanCaster
                                     cli.RunningACKCount = 0;
                                 }
                             }
-
-                            if (clients.Count > 0)
-                                maxACKsPerMinute = clients.Values.Max(cli => cli.ACKsPerMinute);
-                            else
-                                maxACKsPerMinute = 0;
                         }
 
-#if true
-                        // Don't send faster than our fastest receiver can receive:
-                        if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute >= (maxACKsPerMinute * 2)))
-                        {
-                            // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least `queueBacklog` chunks:
-                            if (chunkState.Values.Count(e => e.ClientsRemaining.Count > 0) >= queueBacklog)
-                            {
-                                //trace("Still awaiting ACKs on {0} packets", awaitingClientACKs.Count);
-                                Thread.Sleep(1);
-                                continue;
-                            }
-                        }
-#endif
-
-                        // Find the next best chunk to send:
+                        // Find the next set of chunks to send:
+                        List<int> chunkIdxs;
                         lock (clientLock)
                         {
-                            // Order the clients by number of chunks left to receive:
-                            var clientOrder = (
-                                from cli in clients.Values
-                                let naks = cli.NAK.Cast<bool>().Take(numChunks).Count(b => b)
-                                orderby naks ascending
-                                select new { client = cli, naks }
-                            );
-
-                            chunkIdx = (
-                                from cli in clientOrder
-                                // Find the first NAK for the client with the least amount of NAKs to receive:
-                                let ch = cli.client.NAK.Cast<bool>().Take(numChunks)
-                                    .Select((b, i) => new { b, i })
-                                    .FirstOrDefault(x => 
-                                        ((!chunkState.ContainsKey(x.i)) || (!chunkState[x.i].ClientsRemaining.Contains(cli.client.Identity))) &&
-                                        x.b)
-                                where ch != null
-                                select (int?)ch.i
-                            ).FirstOrDefault();
+                            chunkIdxs = (
+                                from cli in
+                                    (
+                                        // Order the clients by number of chunks left to receive:
+                                        from cli in clients.Values
+                                        where cli.HasNAKs && !cli.IsTimedOut
+                                        let naks = cli.NAK.Cast<bool>().Take(numChunks).Count(b => b)
+                                        orderby naks ascending
+                                        select cli
+                                        )
+                                // Find the NAKs for the client with the least amount of NAKs to receive:
+                                from x in cli.NAK.Cast<bool>().Take(numChunks).Select((b, i) => new { b, i })
+                                where x.b
+                                select x.i
+                            ).ToList();
                         }
 
-                        if (!chunkIdx.HasValue)
+                        // No chunks to send? Sleep.
+                        if (chunkIdxs.Count == 0)
                         {
-                            // Sleep until we're ready to send more data:
-                            Thread.Sleep(1);
+                            Thread.Sleep(10);
                             continue;
                         }
 
-                        // Send the current chunk:
-
-                        // Chunk index first:
-                        trace("SEND chunk: {0}", chunkIdx.Value);
-                        data.SendMore(this.subscription, Encoding.Unicode);
-                        data.SendMore("DATA", Encoding.Unicode);
-                        data.SendMore(BitConverter.GetBytes(chunkIdx.Value));
-
-                        // Chunk size:
-                        int currChunkSize;
-                        if (!testMode)
+                        // Send the chunks:
+                        foreach (int chunkIdx in chunkIdxs)
                         {
-                            tarball.Seek((long)chunkIdx.Value * chunkSize, SeekOrigin.Begin);
-                            currChunkSize = tarball.Read(buf, 0, chunkSize);
-                        }
-                        else
-                        {
-                            if (lastChunkSize > 0)
-                                currChunkSize = (chunkIdx.Value < (numChunks - 1)) ? chunkSize : lastChunkSize;
-                            else
-                                currChunkSize = chunkSize;
-                        }
+                            // Chunk index first:
+                            trace("SEND chunk: {0}", chunkIdx);
+                            data.SendMore(this.subscription, Encoding.Unicode);
+                            data.SendMore("DATA", Encoding.Unicode);
+                            data.SendMore(BitConverter.GetBytes(chunkIdx));
 
-                        if (currChunkSize < chunkSize)
-                        {
-                            // Copy to an exact-sized temporary buffer for the last uneven sized chunk:
-                            byte[] tmpBuf = new byte[currChunkSize];
-                            Array.Copy(buf, tmpBuf, currChunkSize);
-                            data.Send(tmpBuf);
-                            tmpBuf = null;
-                        }
-                        else
-                        {
-                            // Send the exact-sized chunk:
-                            data.Send(buf);
-                        }
-
-                        if (ChunkSent != null) ChunkSent(this, chunkIdx.Value);
-                        trace("COMPLETE chunk: {0}", chunkIdx.Value);
-
-                        lock (clientLock)
-                        {
-                            // Wait for an ACK from all the clients who have this chunk currently NAKed:
-                            ChunkState cs;
-                            if (!chunkState.ContainsKey(chunkIdx.Value))
+                            // Chunk size:
+                            int currChunkSize;
+                            if (!testMode)
                             {
-                                cs = chunkState[chunkIdx.Value] = new ChunkState();
+                                tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
+                                currChunkSize = tarball.Read(buf, 0, chunkSize);
                             }
                             else
                             {
-                                (cs = chunkState[chunkIdx.Value]).ClientsRemaining.Clear();
+                                if (lastChunkSize > 0)
+                                    currChunkSize = (chunkIdx < (numChunks - 1)) ? chunkSize : lastChunkSize;
+                                else
+                                    currChunkSize = chunkSize;
                             }
 
-                            foreach (var cli in clients.Values.Where(x => x.NAK[chunkIdx.Value]))
+                            if (currChunkSize < chunkSize)
                             {
-                                //trace("Awaiting ACK from {0} for chunk {1}", cli.Identity.ToString(), chunkIdx.Value);
-                                cs.ClientsRemaining.Add(cli.Identity);
-                                ++cs.TotalAwaitingClients;
+                                // Copy to an exact-sized temporary buffer for the last uneven sized chunk:
+                                byte[] tmpBuf = new byte[currChunkSize];
+                                Array.Copy(buf, tmpBuf, currChunkSize);
+                                data.Send(tmpBuf);
+                                tmpBuf = null;
                             }
-                        }
+                            else
+                            {
+                                // Send the exact-sized chunk:
+                                data.Send(buf);
+                            }
 
-                        ++msgsSent;
+                            if (ChunkSent != null) ChunkSent(this, chunkIdx);
+                            trace("COMPLETE chunk: {0}", chunkIdx);
+
+                            ++msgsSent;
+                        }
                     }
 
                     // TODO: break out of the while loop somehow

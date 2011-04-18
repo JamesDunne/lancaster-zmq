@@ -33,7 +33,6 @@ namespace WellDunne.LanCaster.Server
 
             // Set default chunk size to 1MB:
             int chunkSize = 1024 * 1000;
-            int queueBacklog = 128;
             int ioThreads = 1;
             int hwm = 32;
 
@@ -167,15 +166,6 @@ namespace WellDunne.LanCaster.Server
                         // Override the config with the commandline arg if it can be parsed:
                         Int32.TryParse(argQueue.Dequeue(), out chunkSize);
                         break;
-                    case "-q":
-                        if (argQueue.Count == 0)
-                        {
-                            Console.Error.WriteLine("-q expects a queue length argument");
-                            return;
-                        }
-                        // Override the config with the commandline arg if it can be parsed:
-                        Int32.TryParse(argQueue.Dequeue(), out queueBacklog);
-                        break;
                     case "-n":
                         if (argQueue.Count == 0)
                         {
@@ -232,7 +222,7 @@ namespace WellDunne.LanCaster.Server
 
             using (var serverTarball = new TarballStreamWriter(files))
             {
-                var server = new LanCaster.ServerHost(tsp, endpoint, subscription, serverTarball, basePath, chunkSize, queueBacklog, hwm, testMode);
+                var server = new LanCaster.ServerHost(tsp, endpoint, subscription, serverTarball, basePath, chunkSize, hwm, testMode);
 
                 Console.WriteLine();
                 Console.WriteLine("{0,15} chunks @ {1,13} bytes/chunk", server.NumChunks.ToString("##,#"), server.ChunkSize.ToString("##,#"));
@@ -448,7 +438,6 @@ new[] { @"-i <path>",           @"Read the file at <path> for a listing of filen
 new[] { @"-r",                  @"Set recursive mode (applies to following -d options). Default mode." },
 new[] { @"-R",                  @"Set nonrecursive mode (applies to following -d options)." },
 new[] { @"-c <chunk size>",     @"Set the chunk size in bytes to use for dividing up the files into chunks. Larger values are better for faster networks. Recommend keeping it under 8388608 (8 MB). Default is 1048576 (1 MB)" },
-new[] { @"-q <queue backlog>",  @"Set the server transmission queue backlog length (number of chunks). Default is 128 chunks." },
 new[] { @"-n <io threads>",     @"Set this value to the number of threads you wish 0MQ to dedicate to network I/O. Default is 1." },
 new[] { @"-w <hwm>",            @"Set the high-water mater (HWM) which is the maximum number of chunks 0MQ will queue before dropping them. Default is 32." },
 new[] { @"-a <transport>",      @"Use TCP or EPGM (multicast over UDP) transport for data. Default is TCP." },
