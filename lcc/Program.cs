@@ -26,6 +26,7 @@ namespace WellDunne.LanCaster.Client
         {
             try
             {
+                Transport tsp = Transport.TCP;
                 string endpoint = "*";
                 string subscription = String.Empty;
                 int tmp;
@@ -39,6 +40,14 @@ namespace WellDunne.LanCaster.Client
 
                     switch (arg)
                     {
+                        case "-a":
+                            if (argQueue.Count == 0)
+                            {
+                                Console.Error.WriteLine("-a expects a transport name argument");
+                                return;
+                            }
+                            tsp = (Transport)Enum.Parse(typeof(Transport), argQueue.Dequeue(), true);
+                            break;
                         case "-e":
                             if (argQueue.Count == 0)
                             {
@@ -111,7 +120,7 @@ namespace WellDunne.LanCaster.Client
                 }
 
                 // Create the client:
-                var client = new LanCaster.ClientHost(endpoint, subscription, downloadDirectory, testMode, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState), hwm);
+                var client = new LanCaster.ClientHost(tsp, endpoint, subscription, downloadDirectory, testMode, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState), hwm);
                 client.ChunkWritten += new Action<ClientHost, int>(ChunkWritten);
 
                 // Start the client thread and wait for it to complete:
@@ -121,6 +130,9 @@ namespace WellDunne.LanCaster.Client
                     clientThread.Start(ctx);
                     clientThread.Join();
                 }
+
+                // Force the last progress report:
+                RenderProgress(client, true);
 
                 if (client.Completed)
                 {
@@ -147,8 +159,8 @@ namespace WellDunne.LanCaster.Client
         }
 
         private int numChunks;
-        private BitArray acks;
-        private byte[] ackBuf;
+        //private BitArray acks;
+        private byte[] nakBuf;
 
         private int lastChunkBlock = -1;
         private int lastWrittenChunk = 0;
@@ -216,7 +228,7 @@ namespace WellDunne.LanCaster.Client
 #endif
                 Console.Write('[');
 
-                IEnumerator boolACKs = acks.GetEnumerator();
+                IEnumerator<bool> boolACKs = host.NAKs.Cast<bool>().Take(numChunks).GetEnumerator();
                 if (blocks > 0)
                 {
                     int lastc = 0, c = 0, subc = 0;
@@ -235,7 +247,7 @@ namespace WellDunne.LanCaster.Client
                         bool allOff = false;
                         for (int i = 0; (i < numBlocks) && boolACKs.MoveNext(); ++i)
                         {
-                            bool curr = (bool)boolACKs.Current;
+                            bool curr = !boolACKs.Current;
                             allOn = allOn & curr;
                             allOff = allOff | curr;
                         }
@@ -263,7 +275,7 @@ namespace WellDunne.LanCaster.Client
                         }
 
                         if (!boolACKs.MoveNext()) break;
-                        bool curr = (bool)boolACKs.Current;
+                        bool curr = boolACKs.Current;
 
                         for (int x = lastc; (x < c) && (c < usableWidth); ++x)
                         {
@@ -281,14 +293,14 @@ namespace WellDunne.LanCaster.Client
         void ChunkWritten(ClientHost host, int chunkIdx)
         {
             // Acknowledge the chunk is received:
-            acks[chunkIdx] = true;
+            //acks[chunkIdx] = true;
 
             if (!testMode)
             {
                 // Update the state file:
-                acks.CopyTo(ackBuf, 0);
+                host.NAKs.CopyTo(nakBuf, 0);
                 localStateStream.Seek(0L, SeekOrigin.Begin);
-                localStateStream.Write(ackBuf, 0, ackBuf.Length);
+                localStateStream.Write(nakBuf, 0, nakBuf.Length);
                 localStateStream.Flush();
             }
 
@@ -309,7 +321,8 @@ namespace WellDunne.LanCaster.Client
 
             this.numChunks = numChunks;
             int numChunkBytes = ((numChunks + 7) & ~7) >> 3;
-            ackBuf = new byte[numChunkBytes];
+            nakBuf = new byte[numChunkBytes];
+            for (int i = 0; i < numChunkBytes; ++i) nakBuf[i] = 0xFF;
 
             if (!testMode)
             {
@@ -332,7 +345,7 @@ namespace WellDunne.LanCaster.Client
                     {
                         // Read the NAK state:
                         localStateStream.Seek(0L, SeekOrigin.Begin);
-                        localStateStream.Read(ackBuf, 0, numChunkBytes);
+                        localStateStream.Read(nakBuf, 0, numChunkBytes);
                     }
                 }
 
@@ -343,13 +356,11 @@ namespace WellDunne.LanCaster.Client
                     localStateStream = localStateFile.Open(FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read);
                     localStateStream.SetLength(numChunkBytes);
                     localStateStream.Seek(0L, SeekOrigin.Begin);
-                    localStateStream.Write(ackBuf, 0, numChunkBytes);
+                    localStateStream.Write(nakBuf, 0, numChunkBytes);
                 }
             }
 
-            acks = new BitArray(ackBuf);
-
-            return (acks.Clone() as BitArray).Not();
+            return new BitArray(nakBuf).Clone() as BitArray;
         }
 
         private static void DisplayHeader()

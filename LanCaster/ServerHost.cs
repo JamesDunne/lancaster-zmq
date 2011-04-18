@@ -21,11 +21,13 @@ namespace WellDunne.LanCaster
         private readonly object clientLock = new object();
         private static readonly BooleanSwitch doLogging = new BooleanSwitch("doLogging", "Log server events", "0");
 
-        public int chunkSize;
-        private ushort port;
+        private bool testMode;
+        private int chunkSize, lastChunkSize;
+        private Transport tsp;
+        private uint port;
         private string device;
 
-        public ServerHost(string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize, int queueBacklog, int hwm)
+        public ServerHost(Transport tsp, string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize, int queueBacklog, int hwm, bool testMode)
         {
             if (String.IsNullOrEmpty(endpoint)) throw new ArgumentNullException("endpoint");
             if (String.IsNullOrEmpty(subscription)) throw new ArgumentNullException("subscription");
@@ -33,13 +35,17 @@ namespace WellDunne.LanCaster
             if (String.IsNullOrEmpty(basePath)) throw new ArgumentNullException("basePath");
             if (queueBacklog < 1) throw new ArgumentOutOfRangeException("queueBacklog", "queueBacklog must be 1 or greater");
 
+            this.tsp = tsp;
             this.endpoint = endpoint;
             this.subscription = subscription;
             this.tarball = tarball;
             this.basePath = basePath;
             this.chunkSize = chunkSize;
             this.queueBacklog = queueBacklog;
-            this.numChunks = (int)(tarball.Length / chunkSize) + ((tarball.Length % chunkSize > 0) ? 1 : 0);
+            this.testMode = testMode;
+
+            this.lastChunkSize = (int)(tarball.Length % chunkSize);
+            this.numChunks = (int)(tarball.Length / chunkSize) + ((lastChunkSize > 0) ? 1 : 0);
             this.numBitArrayBytes = ((numChunks + 7) & ~7) >> 3;
             //this.currentNAKs = new BitArray(numBitArrayBytes * 8, false);
 
@@ -51,7 +57,7 @@ namespace WellDunne.LanCaster
             if (idx >= 0)
             {
                 device = endpoint.Substring(0, idx);
-                UInt16.TryParse(endpoint.Substring(idx + 1), out port);
+                UInt32.TryParse(endpoint.Substring(idx + 1), out port);
             }
 
             this.hwm = hwm;
@@ -96,12 +102,24 @@ namespace WellDunne.LanCaster
             }
         }
 
+        private sealed class ChunkState
+        {
+            public int TotalAwaitingClients { get; set; }
+            public HashSet<Guid> ClientsRemaining { get; set; }
+
+            public ChunkState()
+            {
+                TotalAwaitingClients = 0;
+                ClientsRemaining = new HashSet<Guid>();
+            }
+        }
+
         //private BitArray currentNAKs;
         private int numChunks;
         private int numBitArrayBytes;
         private Dictionary<Guid, ClientState> clients = new Dictionary<Guid, ClientState>();
         private Dictionary<Guid, DateTimeOffset[]> clientTimeout = new Dictionary<Guid, DateTimeOffset[]>();
-        private Dictionary<int, HashSet<Guid>> awaitingClientACKs = new Dictionary<int, HashSet<Guid>>();
+        private Dictionary<int, ChunkState> chunkState = new Dictionary<int, ChunkState>();
         private int queueBacklog;
         private int hwm;
         private bool isRunning;
@@ -133,10 +151,7 @@ namespace WellDunne.LanCaster
                 using (Socket ctl = ctx.Socket(SocketType.REP))
                 {
                     // Bind the control reply socket:
-                    ctl.RcvBuf = 1048576 * 16;
-                    ctl.SndBuf = 1048576 * 2;
-                    ctl.RCVHWM = 50;
-                    ctl.Bind("tcp://" + host.device + ":" + (host.port + 1).ToString());
+                    ctl.Bind(Transport.TCP, host.device, (host.port + 1));
 
                     // Wait for the sockets to bind:
                     Thread.Sleep(500);
@@ -175,7 +190,7 @@ namespace WellDunne.LanCaster
                                     host.clients.Add(clientIdentity, new ClientState(clientIdentity, new BitArray(host.numBitArrayBytes << 3)));
                                 }
 
-                                // Send out the tarball descriptor:
+                                // TODO: send out the tarball descriptor:
                                 sock.SendMore("JOINED", Encoding.Unicode);
 
                                 ReadOnlyCollection<FileInfo> files = host.tarball.Files;
@@ -236,9 +251,9 @@ namespace WellDunne.LanCaster
                                         nakChunkIdxs[i] = idx;
 
                                         cli.NAK[idx] = false;
-                                        if (host.awaitingClientACKs.ContainsKey(idx))
+                                        if (host.chunkState.ContainsKey(idx))
                                         {
-                                            host.awaitingClientACKs[idx].Remove(clientIdentity);
+                                            host.chunkState[idx].ClientsRemaining.Remove(clientIdentity);
                                         }
                                     }
                                 }
@@ -300,8 +315,11 @@ namespace WellDunne.LanCaster
                                     // Remove the client's state record:
                                     host.clients.Remove(clientIdentity);
 
-                                    foreach (HashSet<Guid> awaiter in host.awaitingClientACKs.Values)
-                                        awaiter.Remove(clientIdentity);
+                                    foreach (ChunkState cs in host.chunkState.Values)
+                                    {
+                                        cs.ClientsRemaining.Remove(clientIdentity);
+                                        --cs.TotalAwaitingClients;
+                                    }
                                     host.clientTimeout.Remove(clientIdentity);
                                 }
 
@@ -361,7 +379,7 @@ namespace WellDunne.LanCaster
                     //data.Rate = 20000L;
                     data.SndBuf = chunkSize * queueBacklog * 8;
                     data.StringToIdentity(subscription, Encoding.Unicode);
-                    data.Bind("tcp://" + device + ":" + port.ToString());
+                    data.Bind(tsp.ToString().ToLower() + "://" + device + ":" + port);
 
                     isRunning = true;
 
@@ -411,8 +429,11 @@ namespace WellDunne.LanCaster
                             {
                                 sickOfAwaitingClient.Value[1] = DateTimeOffset.UtcNow.AddSeconds(2);
                                 // We're sick of waiting on this client's ACK, maybe they lost the packet(s).
-                                foreach (HashSet<Guid> awaiter in awaitingClientACKs.Values)
-                                    awaiter.Remove(sickOfAwaitingClient.Key);
+                                foreach (ChunkState cs in chunkState.Values)
+                                {
+                                    cs.ClientsRemaining.Remove(sickOfAwaitingClient.Key);
+                                    --cs.TotalAwaitingClients;
+                                }
                             }
 
                             KeyValuePair<Guid, DateTimeOffset[]> timedOutClient = clientTimeout.FirstOrDefault(dt => dt.Value[0] < rightMeow);
@@ -469,7 +490,7 @@ namespace WellDunne.LanCaster
                         if ((msgsPerMinute > 0) && (maxACKsPerMinute > 0) && (msgsPerMinute >= (maxACKsPerMinute * 2)))
                         {
                             // Hold off on queueing up more chunks to deliver if we're still awaiting ACKs for at least `queueBacklog` chunks:
-                            if (awaitingClientACKs.Values.Count(e => e.Count > 0) >= queueBacklog)
+                            if (chunkState.Values.Count(e => e.ClientsRemaining.Count > 0) >= queueBacklog)
                             {
                                 //trace("Still awaiting ACKs on {0} packets", awaitingClientACKs.Count);
                                 Thread.Sleep(1);
@@ -484,7 +505,7 @@ namespace WellDunne.LanCaster
                             // Order the clients by number of chunks left to receive:
                             var clientOrder = (
                                 from cli in clients.Values
-                                let naks = cli.NAK.Cast<bool>().Count(b => b)
+                                let naks = cli.NAK.Cast<bool>().Take(numChunks).Count(b => b)
                                 orderby naks ascending
                                 select new { client = cli, naks }
                             );
@@ -492,11 +513,10 @@ namespace WellDunne.LanCaster
                             chunkIdx = (
                                 from cli in clientOrder
                                 // Find the first NAK for the client with the least amount of NAKs to receive:
-                                let ch = cli.client.NAK
-                                    .Cast<bool>()
+                                let ch = cli.client.NAK.Cast<bool>().Take(numChunks)
                                     .Select((b, i) => new { b, i })
                                     .FirstOrDefault(x => 
-                                        ((!awaitingClientACKs.ContainsKey(x.i)) || (awaitingClientACKs[x.i].Count == 0)) &&
+                                        ((!chunkState.ContainsKey(x.i)) || (!chunkState[x.i].ClientsRemaining.Contains(cli.client.Identity))) &&
                                         x.b)
                                 where ch != null
                                 select (int?)ch.i
@@ -519,8 +539,20 @@ namespace WellDunne.LanCaster
                         data.SendMore(BitConverter.GetBytes(chunkIdx.Value));
 
                         // Chunk size:
-                        tarball.Seek((long)chunkIdx.Value * chunkSize, SeekOrigin.Begin);
-                        int currChunkSize = tarball.Read(buf, 0, chunkSize);
+                        int currChunkSize;
+                        if (!testMode)
+                        {
+                            tarball.Seek((long)chunkIdx.Value * chunkSize, SeekOrigin.Begin);
+                            currChunkSize = tarball.Read(buf, 0, chunkSize);
+                        }
+                        else
+                        {
+                            if (lastChunkSize > 0)
+                                currChunkSize = (chunkIdx.Value < (numChunks - 1)) ? chunkSize : lastChunkSize;
+                            else
+                                currChunkSize = chunkSize;
+                        }
+
                         if (currChunkSize < chunkSize)
                         {
                             // Copy to an exact-sized temporary buffer for the last uneven sized chunk:
@@ -541,20 +573,21 @@ namespace WellDunne.LanCaster
                         lock (clientLock)
                         {
                             // Wait for an ACK from all the clients who have this chunk currently NAKed:
-                            HashSet<Guid> awaiter;
-                            if (!awaitingClientACKs.ContainsKey(chunkIdx.Value))
+                            ChunkState cs;
+                            if (!chunkState.ContainsKey(chunkIdx.Value))
                             {
-                                awaiter = awaitingClientACKs[chunkIdx.Value] = new HashSet<Guid>();
+                                cs = chunkState[chunkIdx.Value] = new ChunkState();
                             }
                             else
                             {
-                                (awaiter = awaitingClientACKs[chunkIdx.Value]).Clear();
+                                (cs = chunkState[chunkIdx.Value]).ClientsRemaining.Clear();
                             }
 
                             foreach (var cli in clients.Values.Where(x => x.NAK[chunkIdx.Value]))
                             {
                                 //trace("Awaiting ACK from {0} for chunk {1}", cli.Identity.ToString(), chunkIdx.Value);
-                                awaiter.Add(cli.Identity);
+                                cs.ClientsRemaining.Add(cli.Identity);
+                                ++cs.TotalAwaitingClients;
                             }
                         }
 

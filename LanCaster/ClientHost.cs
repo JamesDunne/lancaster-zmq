@@ -20,16 +20,19 @@ namespace WellDunne.LanCaster
         private BooleanSwitch doLogging;
         private int chunkSize;
         private bool testMode;
-        private ushort port;
+        private Transport tsp;
+        private uint port;
         private string device;
         private int hwm;
         private TarballStreamReader tarball = null;
         private readonly object tarballLock = new object();
+        private BitArray naks = null;
 
         public delegate BitArray GetClientNAKStateDelegate(ClientHost host, int numChunks, int chunkSize, TarballStreamReader tarball);
 
-        public ClientHost(string endpoint, string subscription, DirectoryInfo downloadDirectory, bool testMode, GetClientNAKStateDelegate getClientState, int hwm)
+        public ClientHost(Transport tsp, string endpoint, string subscription, DirectoryInfo downloadDirectory, bool testMode, GetClientNAKStateDelegate getClientState, int hwm)
         {
+            this.tsp = tsp;
             this.endpoint = endpoint;
             this.subscription = subscription;
             this.downloadDirectory = downloadDirectory;
@@ -44,7 +47,7 @@ namespace WellDunne.LanCaster
             if (idx >= 0)
             {
                 device = endpoint.Substring(0, idx);
-                UInt16.TryParse(endpoint.Substring(idx + 1), out port);
+                UInt32.TryParse(endpoint.Substring(idx + 1), out port);
             }
 
             this.hwm = hwm;
@@ -61,6 +64,7 @@ namespace WellDunne.LanCaster
         public bool Completed { get; private set; }
         public int ChunksPerMinute { get; private set; }
         public int ChunkSize { get { return this.chunkSize; } }
+        public BitArray NAKs { get { return this.naks; } }
 
         private enum DataSUBState
         {
@@ -194,8 +198,8 @@ namespace WellDunne.LanCaster
                     diskACK = new Socket(SocketType.PULL);
 
                     // Set the HWM for the disk PUSH so that the PUSH blocks if the PULL can't keep up writing:
-                    //disk.SNDHWM = 1;
-                    //disk.RCVHWM = 1;
+                    disk.SNDHWM = 1;
+                    disk.RCVHWM = 1;
                     disk.SndBuf = 1048576 * 10;
                     disk.Bind("inproc://disk");
 
@@ -209,8 +213,8 @@ namespace WellDunne.LanCaster
 
                     data.RCVHWM = hwm;
 
-                    data.RcvBuf = 1048576 * hwm * 2;
-                    data.Connect("tcp://" + device + ":" + port.ToString());
+                    data.RcvBuf = 1048576 * 128 * 2;
+                    data.Connect(tsp.ToString().ToLower() + "://" + device + ":" + port);
                     data.Subscribe(subscription, Encoding.Unicode);
 
                     // Connect to the control request socket:
@@ -223,7 +227,7 @@ namespace WellDunne.LanCaster
 
                     // Begin client logic:
 
-                    BitArray naks = null;
+                    naks = null;
                     int numBytes = 0;
                     int ackCount = -1;
                     byte[] nakBuf = null;
@@ -283,23 +287,6 @@ namespace WellDunne.LanCaster
                                     disk.Send(chunk);
                                     chunk = null;
 
-#if false
-                                    naks[chunkIdx] = false;
-                                    ++ackCount;
-
-                                    // Notify the host that a chunk was written:
-                                    if (ChunkWritten != null) ChunkWritten(this, chunkIdx);
-
-                                    runningACKs.Add(chunkIdx);
-
-                                    // If we ran up the timer, send more ACKs:
-                                    if (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 100d)
-                                    {
-                                        lastSentACKs = DateTimeOffset.UtcNow;
-                                        controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, new List<int>(runningACKs)));
-                                        runningACKs.Clear();
-                                    }
-#endif
                                     return DataSUBState.Recv;
                                 }
                                 else if (cmd == "PING")
@@ -411,14 +398,17 @@ namespace WellDunne.LanCaster
                                         tarball.Dispose();
                                         tarball = null;
                                     }
+                                }
 
+                                lock (tarballLock)
+                                {
                                     // Create the tarball reader that writes the files locally:
                                     tarball = new TarballStreamReader(downloadDirectory, tbes);
 
                                     // Get our local download state:
                                     naks = getClientState(this, numChunks, chunkSize, tarball);
                                 }
-                                ackCount = naks.Cast<bool>().Count(b => !b);
+                                ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
 
                                 // Send our NAKs:
                                 ctl.SendMore(ctl.Identity);
@@ -476,7 +466,9 @@ namespace WellDunne.LanCaster
                             int chunkIdx = BitConverter.ToInt32(idxPkt, 0);
                             //Console.WriteLine("Disk write {0} complete", chunkIdx);
                             naks[chunkIdx] = false;
-                            ++ackCount;
+                            
+                            ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
+                            //++ackCount;
 
                             // Notify the host that a chunk was written:
                             if (ChunkWritten != null) ChunkWritten(this, chunkIdx);
@@ -490,7 +482,6 @@ namespace WellDunne.LanCaster
                                 controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, new List<int>(runningACKs)));
                                 runningACKs.Clear();
                             }
-
                         });
 
                         pollItems[0].PollInHandler += new PollHandler(dataFSM.StateMasheen);
@@ -536,13 +527,13 @@ namespace WellDunne.LanCaster
 
                             if (ackCount >= numChunks)
                             {
-                                Completed = true;
                                 disk.Send(cmdExit);
                                 break;
                             }
                         }
 
                         diskWriterThread.Join();
+                        Completed = true;
 
                         // FIXME: this can be the wrong time to attempt Send.
                         ctl.SendMore(ctl.Identity);
