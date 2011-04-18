@@ -314,7 +314,7 @@ namespace WellDunne.LanCaster
                                 if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 500d)
                                 {
                                     lastSentNAKs = DateTimeOffset.UtcNow;
-                                    controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendNAKS, new List<int>(runningACKs)));
+                                    controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendNAKS, null));
                                     runningACKs.Clear();
                                 }
 

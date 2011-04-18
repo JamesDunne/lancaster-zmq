@@ -65,7 +65,7 @@ namespace WellDunne.LanCaster
         public int NumBitArrayBytes { get { return this.numBitArrayBytes; } }
         public int ChunkSize { get { return this.chunkSize; } }
 
-        public ReadOnlyCollection<ClientState> Clients { get { return new ReadOnlyCollection<ClientState>(this.clients.Values.ToList()); } }
+        public ReadOnlyCollection<ClientState> Clients { get { return new ReadOnlyCollection<ClientState>(this.clients.Values.Where(cli => cli.HasNAKs && !cli.IsTimedOut).ToList()); } }
 
         public enum ClientLeaveReason
         {
@@ -216,11 +216,18 @@ namespace WellDunne.LanCaster
                                 {
                                     BitArray newNAKs = new BitArray(tmp);
                                     // Add to the running ACK count the number of chunks turned from NAK to ACK in this update:
-                                    client.RunningACKCount += (
-                                        from i in Enumerable.Range(0, host.numChunks)
-                                        where (client.NAK[i] == true) && (newNAKs[i] == false)
-                                        select i
-                                    ).Count();
+                                    if (client.HasNAKs)
+                                    {
+                                        client.RunningACKCount += (
+                                            from i in Enumerable.Range(0, host.numChunks)
+                                            where (client.NAK[i] == true) && (newNAKs[i] == false)
+                                            select i
+                                        ).Count();
+                                    }
+                                    else
+                                    {
+                                        client.RunningACKCount += newNAKs.Cast<bool>().Take(host.numChunks).Count(b => !b);
+                                    }
                                     // Update to the new NAK state:
                                     client.NAK = newNAKs;
                                 }
