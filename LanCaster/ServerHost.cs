@@ -167,10 +167,10 @@ namespace WellDunne.LanCaster
                             else
                             {
                                 client = host.clients[clientIdentity];
-
-                                // Update last message received time to now:
-                                client.LastMessageTime = DateTimeOffset.UtcNow;
                             }
+
+                            // Update last message received time to now:
+                            client.LastMessageTime = DateTimeOffset.UtcNow;
                         }
 
                         string cmd = Encoding.Unicode.GetString(request.Dequeue());
@@ -383,6 +383,7 @@ namespace WellDunne.LanCaster
                                 {
                                     cli.ACKsPerMinute = (int)((cli.RunningACKCount * 60000L) / elapsed);
                                     cli.LastElapsedMilliseconds = sendTimer.ElapsedMilliseconds;
+                                    Console.WriteLine(cli.RunningACKCount);
                                     cli.RunningACKCount = 0;
                                 }
                             }
