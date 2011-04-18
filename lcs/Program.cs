@@ -228,7 +228,7 @@ namespace WellDunne.LanCaster.Server
                 Console.WriteLine("{0,15} chunks @ {1,13} bytes/chunk", server.NumChunks.ToString("##,#"), server.ChunkSize.ToString("##,#"));
 
                 server.ChunkSent += new Action<ServerHost, int>(ChunkSent);
-                server.ChunksACKed += new Action<ServerHost, int[]>(ChunksACKed);
+                server.ChunksACKed += new Action<ServerHost>(ChunksACKed);
                 server.ClientJoined += new Action<ServerHost, Guid>(ClientJoined);
                 server.ClientLeft += new Action<ServerHost, Guid, ServerHost.ClientLeaveReason>(ClientLeft);
 
@@ -242,7 +242,7 @@ namespace WellDunne.LanCaster.Server
             }
         }
 
-        void ChunksACKed(ServerHost host, int[] chunkIdx)
+        void ChunksACKed(ServerHost host)
         {
             RenderProgress(host, false);
         }

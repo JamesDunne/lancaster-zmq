@@ -74,14 +74,13 @@ namespace WellDunne.LanCaster
         private enum ControlREQState
         {
             Nothing,
-            SendACK,
+            SendUNKNOWN,
             SendALIVE,
             RecvALIVE,
-            SendUNKNOWN,
             SendJOIN,
-            RecvACK,
             RecvJOIN,
-            RecvNAKS
+            SendNAKS,
+            RecvNAKS,
         }
 
         private struct QueuedControlMessage
@@ -249,7 +248,7 @@ namespace WellDunne.LanCaster
                         Queue<QueuedControlMessage> controlStateQueue = new Queue<QueuedControlMessage>();
 
                         List<int> runningACKs = new List<int>(128);
-                        DateTimeOffset lastSentACKs = DateTimeOffset.UtcNow.Subtract(TimeSpan.FromSeconds(60));
+                        DateTimeOffset lastSentNAKs = DateTimeOffset.UtcNow.Subtract(TimeSpan.FromSeconds(60));
 
                         // We create a state machine to handle our send/recv state:
                         dataFSM = new ZMQStateMasheen<DataSUBState>(
@@ -260,13 +259,16 @@ namespace WellDunne.LanCaster
                             {
                                 Queue<byte[]> packet = sock.RecvAll();
 
+                                if (packet.Count == 0) return DataSUBState.Recv;
                                 string sub = Encoding.Unicode.GetString(packet.Dequeue());
+                                if (packet.Count == 0) return DataSUBState.Recv;
                                 string cmd = Encoding.Unicode.GetString(packet.Dequeue());
 
                                 if ((naks != null) && (cmd == "DATA"))
                                 {
                                     ++msgsRecv;
 
+                                    if (packet.Count == 0) return DataSUBState.Recv;
                                     int chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
 
                                     // Already received this chunk?
@@ -281,6 +283,7 @@ namespace WellDunne.LanCaster
                                     // Queue up the disk writes with PUSH/PULL and an HWM on a separate thread to maintain as
                                     // constant disk write throughput as we can get... The HWM will enforce the PUSHer to block
                                     // when the PULLer cannot receive yet.
+                                    if (packet.Count == 0) return DataSUBState.Recv;
                                     byte[] chunk = packet.Dequeue();
                                     disk.SendMore(cmdWrite);
                                     disk.SendMore(BitConverter.GetBytes(chunkIdx));
@@ -292,11 +295,6 @@ namespace WellDunne.LanCaster
                                 else if (cmd == "PING")
                                 {
                                     controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendALIVE, null));
-                                    return DataSUBState.Recv;
-                                }
-                                else if (cmd == "WHOAREYOU")
-                                {
-                                    controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendJOIN, null));
                                     return DataSUBState.Recv;
                                 }
                                 else
@@ -312,11 +310,11 @@ namespace WellDunne.LanCaster
                             ControlREQState.SendJOIN,
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.Nothing, (sock, revents) =>
                             {
-                                // If we ran up the timer, send more ACKs:
-                                if (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 100d)
+                                // If we ran up the timer, send more NAKs:
+                                if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 500d)
                                 {
-                                    lastSentACKs = DateTimeOffset.UtcNow;
-                                    controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, new List<int>(runningACKs)));
+                                    lastSentNAKs = DateTimeOffset.UtcNow;
+                                    controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendNAKS, new List<int>(runningACKs)));
                                     runningACKs.Clear();
                                 }
 
@@ -337,6 +335,7 @@ namespace WellDunne.LanCaster
 
                                 ctl.SendMore(ctl.Identity);
                                 ctl.Send("ALIVE", Encoding.Unicode);
+
                                 return ControlREQState.RecvALIVE;
                             }),
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.RecvALIVE, (sock, revents) =>
@@ -345,6 +344,7 @@ namespace WellDunne.LanCaster
 
                                 Queue<byte[]> packet = ctl.RecvAll();
 
+                                if (packet.Count == 0) return ControlREQState.Nothing;
                                 string cmd = Encoding.Unicode.GetString(packet.Dequeue());
                                 trace("Server: '{0}'", cmd);
 
@@ -367,24 +367,34 @@ namespace WellDunne.LanCaster
                             {
                                 if ((revents & IOMultiPlex.POLLIN) != IOMultiPlex.POLLIN) return ControlREQState.Nothing;
 
-                                Queue<byte[]> reply = ctl.RecvAll();
-                                string resp = Encoding.Unicode.GetString(reply.Dequeue());
+                                Queue<byte[]> packet = ctl.RecvAll();
+                                if (packet.Count == 0) return ControlREQState.Nothing;
+
+                                string resp = Encoding.Unicode.GetString(packet.Dequeue());
                                 if (resp != "JOINED")
                                 {
+                                    // TODO: handle this failure.
                                     return ControlREQState.Nothing;
                                 }
 
-                                numChunks = BitConverter.ToInt32(reply.Dequeue(), 0);
+                                // TODO: make this atomically succeed or fail without corrupting state
+                                if (packet.Count == 0) return ControlREQState.Nothing;
+                                numChunks = BitConverter.ToInt32(packet.Dequeue(), 0);
                                 numBytes = ((numChunks + 7) & ~7) >> 3;
-                                chunkSize = BitConverter.ToInt32(reply.Dequeue(), 0);
-                                int numFiles = BitConverter.ToInt32(reply.Dequeue(), 0);
+                                if (packet.Count == 0) return ControlREQState.Nothing;
+                                chunkSize = BitConverter.ToInt32(packet.Dequeue(), 0);
+                                if (packet.Count == 0) return ControlREQState.Nothing;
+                                int numFiles = BitConverter.ToInt32(packet.Dequeue(), 0);
 
                                 List<TarballEntry> tbes = new List<TarballEntry>(numFiles);
                                 for (int i = 0; i < numFiles; ++i)
                                 {
-                                    string fiName = Encoding.Unicode.GetString(reply.Dequeue());
-                                    long length = BitConverter.ToInt64(reply.Dequeue(), 0);
-                                    byte[] hash = reply.Dequeue();
+                                    if (packet.Count == 0) return ControlREQState.Nothing;
+                                    string fiName = Encoding.Unicode.GetString(packet.Dequeue());
+                                    if (packet.Count == 0) return ControlREQState.Nothing;
+                                    long length = BitConverter.ToInt64(packet.Dequeue(), 0);
+                                    if (packet.Count == 0) return ControlREQState.Nothing;
+                                    byte[] hash = packet.Dequeue();
 
                                     TarballEntry tbe = new TarballEntry(fiName, length, hash);
                                     tbes.Add(tbe);
@@ -410,6 +420,12 @@ namespace WellDunne.LanCaster
                                 }
                                 ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
 
+                                return ControlREQState.SendNAKS;
+                            }),
+                            new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendNAKS, (sock, revents) =>
+                            {
+                                if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
+
                                 // Send our NAKs:
                                 ctl.SendMore(ctl.Identity);
                                 ctl.SendMore("NAKS", Encoding.Unicode);
@@ -429,32 +445,6 @@ namespace WellDunne.LanCaster
                                 // Don't care what the response is for now.
 
                                 return ControlREQState.Nothing;
-                            }),
-                            new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendACK, (sock, revents) =>
-                            {
-                                if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
-
-                                List<int> chunksACKed = (List<int>)tmpControlState;
-
-                                // Send an ACK packet to the control socket:
-                                ctl.SendMore(ctl.Identity);
-                                ctl.SendMore("ACK", Encoding.Unicode);
-                                ctl.SendMore(BitConverter.GetBytes(chunksACKed.Count));
-                                byte[] ackBuf = new byte[chunksACKed.Count * 4];
-                                for (int i = 0; i < chunksACKed.Count; ++i)
-                                {
-                                    Array.Copy(BitConverter.GetBytes(chunksACKed[i]), 0, ackBuf, i * 4, 4);
-                                }
-                                ctl.Send(ackBuf);
-
-                                return ControlREQState.RecvACK;
-                            }),
-                            new ZMQStateMasheen<ControlREQState>.State(ControlREQState.RecvACK, (sock, revents) =>
-                            {
-                                if ((revents & IOMultiPlex.POLLIN) != IOMultiPlex.POLLIN) return ControlREQState.Nothing;
-
-                                ctl.RecvAll();
-                                return ControlREQState.Nothing;
                             })
                         );
 
@@ -468,19 +458,15 @@ namespace WellDunne.LanCaster
                             naks[chunkIdx] = false;
                             
                             ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
-                            //++ackCount;
 
                             // Notify the host that a chunk was written:
                             if (ChunkWritten != null) ChunkWritten(this, chunkIdx);
 
-                            runningACKs.Add(chunkIdx);
-
                             // If we ran up the timer, send more ACKs:
-                            if (DateTimeOffset.UtcNow.Subtract(lastSentACKs).TotalMilliseconds >= 100d)
+                            if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 500d)
                             {
-                                lastSentACKs = DateTimeOffset.UtcNow;
-                                controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendACK, new List<int>(runningACKs)));
-                                runningACKs.Clear();
+                                lastSentNAKs = DateTimeOffset.UtcNow;
+                                controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendNAKS, null));
                             }
                         });
 

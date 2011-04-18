@@ -75,7 +75,7 @@ namespace WellDunne.LanCaster
         }
 
         public event Action<ServerHost, int> ChunkSent;
-        public event Action<ServerHost, int[]> ChunksACKed;
+        public event Action<ServerHost> ChunksACKed;
         public event Action<ServerHost, Guid> ClientJoined;
         public event Action<ServerHost, Guid, ClientLeaveReason> ClientLeft;
 
@@ -154,6 +154,7 @@ namespace WellDunne.LanCaster
 
                         Guid clientIdentity = new Guid(request.Dequeue().Skip(1).ToArray());
                         ClientState client;
+                        bool newClient = false;
 
                         lock (host.clientLock)
                         {
@@ -161,11 +162,13 @@ namespace WellDunne.LanCaster
                             {
                                 client = new ClientState(clientIdentity);
                                 host.clients.Add(clientIdentity, client);
+                                newClient = true;
                             }
                             else
                             {
                                 client = host.clients[clientIdentity];
-                                // Last message received time was now:
+
+                                // Update last message received time to now:
                                 client.LastMessageTime = DateTimeOffset.UtcNow;
                             }
                         }
@@ -211,10 +214,19 @@ namespace WellDunne.LanCaster
 
                                 lock (host.clientLock)
                                 {
-                                    client.NAK = new BitArray(tmp);
+                                    BitArray newNAKs = new BitArray(tmp);
+                                    // Add to the running ACK count the number of chunks turned from NAK to ACK in this update:
+                                    client.RunningACKCount += (
+                                        from i in Enumerable.Range(0, host.numChunks)
+                                        where (client.NAK[i] == true) && (newNAKs[i] == false)
+                                        select i
+                                    ).Count();
+                                    // Update to the new NAK state:
+                                    client.NAK = newNAKs;
                                 }
 
                                 trace("{0}: NAKs received", clientIdentity.ToString());
+                                if (host.ChunksACKed != null) host.ChunksACKed(host);
                                 break;
 
                             case "LEAVE":
@@ -232,6 +244,14 @@ namespace WellDunne.LanCaster
                                 break;
 
                             case "ALIVE":
+                                if (newClient)
+                                {
+                                    trace("{0}: WHOAREYOU", clientIdentity.ToString());
+                                    byte[] sendIdentity = new byte[1] { (byte)'@' }.Concat(clientIdentity.ToByteArray()).ToArray();
+                                    sock.Send("WHOAREYOU", Encoding.Unicode);
+                                    break;
+                                }
+
                                 // Fantastic.
                                 sock.Send("", Encoding.Unicode);
                                 break;
