@@ -109,7 +109,7 @@ namespace WellDunne.LanCaster
                     diskACK = new Socket(SocketType.PUSH)
                 )
                 {
-                    disk.RCVHWM = 10;
+                    disk.RCVHWM = hwm;
                     disk.RcvBuf = 1048576 * disk.RCVHWM;
                     disk.Connect("inproc://disk");
                     diskACK.Connect("inproc://diskack");
@@ -197,9 +197,8 @@ namespace WellDunne.LanCaster
                     diskACK = new Socket(SocketType.PULL);
 
                     // Set the HWM for the disk PUSH so that the PUSH blocks if the PULL can't keep up writing:
-                    disk.SNDHWM = 1;
-                    disk.RCVHWM = 1;
-                    disk.SndBuf = 1048576 * 10;
+                    disk.SNDHWM = hwm;
+                    disk.SndBuf = 1048576 * hwm;
                     disk.Bind("inproc://disk");
 
                     diskACK.Bind("inproc://diskack");
