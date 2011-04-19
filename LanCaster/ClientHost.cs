@@ -14,7 +14,7 @@ namespace WellDunne.LanCaster
     public sealed class ClientHost
     {
         private DirectoryInfo downloadDirectory;
-        private int numChunks;
+        private int numChunks, numBytes;
         private string subscription;
         private string endpoint;
         private BooleanSwitch doLogging;
@@ -28,7 +28,7 @@ namespace WellDunne.LanCaster
         private readonly object tarballLock = new object();
         private BitArray naks = null;
 
-        public delegate BitArray GetClientNAKStateDelegate(ClientHost host, int numChunks, int chunkSize, TarballStreamReader tarball);
+        public delegate BitArray GetClientNAKStateDelegate(ClientHost host, TarballStreamReader tarball);
 
         public ClientHost(Transport tsp, string endpoint, string subscription, DirectoryInfo downloadDirectory, bool testMode, GetClientNAKStateDelegate getClientState, int hwm)
         {
@@ -62,7 +62,11 @@ namespace WellDunne.LanCaster
         }
 
         public bool Completed { get; private set; }
+
         public int ChunksPerMinute { get; private set; }
+
+        public int NumChunks { get { return this.numChunks; } }
+        public int NumBytes { get { return this.numBytes; } }
         public int ChunkSize { get { return this.chunkSize; } }
         public BitArray NAKs { get { return this.naks; } }
 
@@ -230,7 +234,7 @@ namespace WellDunne.LanCaster
                     // Begin client logic:
 
                     naks = null;
-                    int numBytes = 0;
+                    numBytes = 0;
                     int ackCount = -1;
                     byte[] nakBuf = null;
 
@@ -416,7 +420,7 @@ namespace WellDunne.LanCaster
                                     tarball = new TarballStreamReader(downloadDirectory, tbes);
 
                                     // Get our local download state:
-                                    naks = getClientState(this, numChunks, chunkSize, tarball);
+                                    naks = getClientState(this, tarball);
                                 }
                                 ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
 

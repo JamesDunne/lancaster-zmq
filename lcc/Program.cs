@@ -324,7 +324,7 @@ namespace WellDunne.LanCaster.Client
             RenderProgress(host, false);
         }
 
-        BitArray GetClientNAKState(ClientHost host, int numChunks, int chunkSize, TarballStreamReader tarball)
+        BitArray GetClientNAKState(ClientHost host, TarballStreamReader tarball)
         {
             Console.WriteLine("Receiving {0} files to '{1}':", tarball.Files.Count, downloadDirectory.FullName);
             foreach (var fi in tarball.Files)
@@ -332,10 +332,10 @@ namespace WellDunne.LanCaster.Client
                 Console.WriteLine("{0,15} {1}", fi.Length.ToString("##,#"), fi.RelativePath);
             }
             Console.WriteLine();
-            Console.WriteLine("{0,15} chunks @ {1,13} bytes/chunk", numChunks.ToString("##,#"), chunkSize.ToString("##,#"));
+            Console.WriteLine("{0,15} chunks @ {1,13} bytes/chunk", numChunks.ToString("##,#"), host.ChunkSize.ToString("##,#"));
 
-            this.numChunks = numChunks;
-            int numChunkBytes = ((numChunks + 7) & ~7) >> 3;
+            this.numChunks = host.NumChunks;
+            int numChunkBytes = host.NumBytes;
             nakBuf = new byte[numChunkBytes];
             for (int i = 0; i < numChunkBytes; ++i) nakBuf[i] = 0xFF;
 

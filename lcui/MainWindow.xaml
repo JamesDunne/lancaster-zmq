@@ -1,8 +1,8 @@
-﻿<Window x:Class="lcui.MainWindow"
+﻿<Window x:Class="WellDunne.LanCaster.GUI.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:my="clr-namespace:WellDunne.LanCaster.GUI"
-        Title="MainWindow" Height="507" Width="680">
+        Title="MainWindow" Height="400" Width="720">
     <Window.Resources>
         <my:FileSizeConverter x:Key="fileSize" />
         <my:TransferRateConverter x:Key="transferRate" />
@@ -25,7 +25,7 @@
                             </DockPanel>
                             <DockPanel DockPanel.Dock="Top" Margin="0,5,0,0">
                                 <TextBlock Margin="0,0,10,0">Connect to:</TextBlock>
-                                <Button x:Name="btnClientConnect" Margin="10,0,0,0" DockPanel.Dock="Right" Width="Auto">Connect</Button>
+                                <Button x:Name="btnClientConnect" Margin="10,0,0,0" DockPanel.Dock="Right" Width="Auto" Click="btnClientConnect_Click">Connect</Button>
                                 <ComboBox x:Name="txtClientConnectIP" ToolTip="IPv4 Address of Server (e.g. 127.0.0.1)" IsEditable="True" StaysOpenOnEdit="True" Text="127.0.0.1">
                                     <TextBlock>127.0.0.1</TextBlock>
                                 </ComboBox>
