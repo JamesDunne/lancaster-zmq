@@ -247,7 +247,6 @@ namespace WellDunne.LanCaster
                         ZMQStateMasheen<ControlREQState> controlFSM;
                         Queue<QueuedControlMessage> controlStateQueue = new Queue<QueuedControlMessage>();
 
-                        List<int> runningACKs = new List<int>(128);
                         DateTimeOffset lastSentNAKs = DateTimeOffset.UtcNow.Subtract(TimeSpan.FromSeconds(60));
 
                         // We create a state machine to handle our send/recv state:
@@ -311,11 +310,10 @@ namespace WellDunne.LanCaster
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.Nothing, (sock, revents) =>
                             {
                                 // If we ran up the timer, send more NAKs:
-                                if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 500d)
+                                if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 100d)
                                 {
                                     lastSentNAKs = DateTimeOffset.UtcNow;
                                     controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendNAKS, null));
-                                    runningACKs.Clear();
                                 }
 
                                 if (controlStateQueue.Count > 0)
@@ -429,6 +427,7 @@ namespace WellDunne.LanCaster
                                 // Send our NAKs:
                                 ctl.SendMore(ctl.Identity);
                                 ctl.SendMore("NAKS", Encoding.Unicode);
+                                // TODO: RLE!
                                 nakBuf = new byte[numBytes];
                                 naks.CopyTo(nakBuf, 0);
                                 trace("SEND NAK");
@@ -463,7 +462,7 @@ namespace WellDunne.LanCaster
                             if (ChunkWritten != null) ChunkWritten(this, chunkIdx);
 
                             // If we ran up the timer, send more ACKs:
-                            if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 500d)
+                            if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 100d)
                             {
                                 lastSentNAKs = DateTimeOffset.UtcNow;
                                 controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendNAKS, null));

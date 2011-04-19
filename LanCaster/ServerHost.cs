@@ -347,7 +347,7 @@ namespace WellDunne.LanCaster
                             // Anyone fully timed out yet?
                             DateTimeOffset rightMeow = DateTimeOffset.UtcNow;
 
-                            foreach (KeyValuePair<Guid, ClientState> timedOutClient in clients.Where(cli => cli.Value.IsRemovable))
+                            foreach (KeyValuePair<Guid, ClientState> timedOutClient in clients.Where(cli => cli.Value.IsRemovable).ToList())
                             {
                                 // Yes, remove that client:
                                 clients.Remove(timedOutClient.Key);
