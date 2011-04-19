@@ -518,6 +518,10 @@ namespace WellDunne.LanCaster
                         diskWriterThread.Join();
                         Completed = true;
 
+                        while ((ctx.Poll(pollItems, 10000) == 1) && (ctl != null))
+                        {
+                        }
+
                         // FIXME: this can be the wrong time to attempt Send.
                         ctl.SendMore(ctl.Identity);
                         ctl.Send("LEAVE", Encoding.Unicode);
