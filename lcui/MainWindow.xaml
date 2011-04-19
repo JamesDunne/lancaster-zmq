@@ -1,8 +1,195 @@
 ﻿<Window x:Class="lcui.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="MainWindow" Height="350" Width="525">
-    <Grid>
-        
-    </Grid>
+        xmlns:my="clr-namespace:WellDunne.LanCaster.GUI"
+        Title="MainWindow" Height="507" Width="680">
+    <Window.Resources>
+        <my:FileSizeConverter x:Key="fileSize" />
+        <my:TransferRateConverter x:Key="transferRate" />
+        <my:ByteArrayBASE64Converter x:Key="base64" />
+        <my:ClientFileCompletionStatusConverter x:Key="completionStatus" />
+    </Window.Resources>
+    <DockPanel>
+        <Grid>
+            <TabControl Grid.Row="0" Grid.Column="0">
+                <TabItem Header="Client" Margin="2,2,2,2" x:Name="pnlClient">
+                    <DockPanel MinHeight="200">
+                        <!-- Top portion of client tab contains Connect and Download text boxes: -->
+                        <DockPanel DockPanel.Dock="Top">
+                            <DockPanel DockPanel.Dock="Top">
+                                <TextBlock Margin="0,0,10,0">Download to:</TextBlock>
+                                <Button x:Name="btnClientFolder" Margin="10,0,0,0" DockPanel.Dock="Right" Width="25" ToolTip="Select folder">...</Button>
+                                <!--TextBox x:Name="txtClientFolder" ToolTip="Local path to download files to"></TextBox -->
+                                <ComboBox x:Name="txtClientFolder" IsEditable="True" StaysOpenOnEdit="True">
+                                </ComboBox>
+                            </DockPanel>
+                            <DockPanel DockPanel.Dock="Top" Margin="0,5,0,0">
+                                <TextBlock Margin="0,0,10,0">Connect to:</TextBlock>
+                                <Button x:Name="btnClientConnect" Margin="10,0,0,0" DockPanel.Dock="Right" Width="Auto">Connect</Button>
+                                <ComboBox x:Name="txtClientConnectIP" ToolTip="IPv4 Address of Server (e.g. 127.0.0.1)" IsEditable="True" StaysOpenOnEdit="True" Text="127.0.0.1">
+                                    <TextBlock>127.0.0.1</TextBlock>
+                                </ComboBox>
+                            </DockPanel>
+                            <DockPanel Margin="0,5,0,0">
+                                <TextBox x:Name="txtClientQueueLength" Margin="10,0,0,0" Width="50">50</TextBox>
+                                <TextBlock>disk write queue length</TextBlock>
+                            </DockPanel>
+                        </DockPanel>
+                        <DockPanel DockPanel.Dock="Bottom">
+                            <Grid DockPanel.Dock="Top">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition></ColumnDefinition>
+                                    <ColumnDefinition></ColumnDefinition>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition></RowDefinition>
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Vertical">
+                                    <DockPanel>
+                                        <TextBlock Margin="0,0,10,0">Sector:</TextBlock>
+                                        <TextBlock x:Name="lblClientSector" Width="Auto" MinWidth="80">0/0</TextBlock>
+                                    </DockPanel>
+                                    <DockPanel>
+                                        <TextBlock Margin="0,0,10,0">Pass:</TextBlock>
+                                        <TextBlock x:Name="lblClientPass" Width="Auto" MinWidth="20">1</TextBlock>
+                                    </DockPanel>
+                                </StackPanel>
+                                <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Vertical" HorizontalAlignment="Right">
+                                    <DockPanel DockPanel.Dock="Right">
+                                        <TextBlock Margin="0,0,10,0">Rate:</TextBlock>
+                                        <TextBlock x:Name="lblClientImmRate" Width="Auto" MinWidth="80">0 MB/sec</TextBlock>
+                                    </DockPanel>
+                                    <DockPanel>
+                                        <TextBlock Margin="0,0,10,0">NAKs:</TextBlock>
+                                        <TextBlock x:Name="lblClientNAKs" Width="Auto" MinWidth="40" Foreground="Red">0</TextBlock>
+                                    </DockPanel>
+                                    <DockPanel>
+                                        <TextBlock Margin="0,0,10,0">Elapsed:</TextBlock>
+                                        <TextBlock x:Name="lblClientElapsed"></TextBlock>
+                                    </DockPanel>
+                                </StackPanel>
+                            </Grid>
+                            <my:SectorCompletionBar DockPanel.Dock="Bottom" Height="22" Width="Auto" Margin="5,5,5,0" x:Name="pbClientProgress"/>
+                        </DockPanel>
+                        <!-- Fill the client tab with the file listing dock: -->
+                        <DockPanel>
+                            <DockPanel DockPanel.Dock="Top">
+                                <TextBlock DockPanel.Dock="Left">Files:</TextBlock>
+                                <TextBlock DockPanel.Dock="Right" x:Name="lblClientFilesCount" Width="Auto">0</TextBlock>
+                                <!-- Just a spacer -->
+                                <Grid />
+                            </DockPanel>
+                            <ListView x:Name="lstClientFiles" VirtualizingStackPanel.IsVirtualizing="True">
+                                <ListView.View>
+                                    <GridView VirtualizingStackPanel.IsVirtualizing="True">
+                                        <GridViewColumn Width="420" DisplayMemberBinding="{Binding RelativePath}">
+                                            <GridViewColumnHeader HorizontalContentAlignment="Left">
+                                                <TextBlock>Relative Path</TextBlock>
+                                            </GridViewColumnHeader>
+                                        </GridViewColumn>
+                                        <GridViewColumn Width="90" DisplayMemberBinding="{Binding Size,Converter={StaticResource fileSize}}">
+                                            <GridViewColumnHeader HorizontalContentAlignment="Left">
+                                                <TextBlock>Size</TextBlock>
+                                            </GridViewColumnHeader>
+                                        </GridViewColumn>
+                                        <GridViewColumn Width="90" DisplayMemberBinding="{Binding Status,Converter={StaticResource completionStatus}}">
+                                            <GridViewColumnHeader HorizontalContentAlignment="Left">
+                                                <TextBlock>Status</TextBlock>
+                                            </GridViewColumnHeader>
+                                        </GridViewColumn>
+                                    </GridView>
+                                </ListView.View>
+                            </ListView>
+                        </DockPanel>
+                    </DockPanel>
+                </TabItem>
+                <TabItem Header="Server" Margin="2,2,2,2" x:Name="pnlServer">
+                    <DockPanel MinHeight="200">
+                        <!-- Top portion of server tab contains Connect and Download text boxes: -->
+                        <DockPanel DockPanel.Dock="Top">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"></ColumnDefinition>
+                                    <ColumnDefinition Width="*"></ColumnDefinition>
+                                    <ColumnDefinition Width="Auto"></ColumnDefinition>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Margin="0,0,10,0">Serve path:</TextBlock>
+                                <ComboBox Grid.Column="1" x:Name="txtServerFolder" ToolTip="Local path to serve files from" IsEditable="True" StaysOpenOnEdit="True">
+                                </ComboBox>
+                                <Button Grid.Column="2" x:Name="btnServerFolder" Margin="10,0,0,0" Width="25" ToolTip="Select file/folder">...</Button>
+                            </Grid>
+                        </DockPanel>
+                        <Grid DockPanel.Dock="Top" Margin="0,5,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"></ColumnDefinition>
+                                <ColumnDefinition Width="Auto"></ColumnDefinition>
+                                <ColumnDefinition Width="Auto"></ColumnDefinition>
+                                <ColumnDefinition Width="Auto"></ColumnDefinition>
+                                <ColumnDefinition Width="Auto"></ColumnDefinition>
+                            </Grid.ColumnDefinitions>
+                            <CheckBox Grid.Column="2" x:Name="chkServerDisconnect" IsChecked="False" Margin="10,0,0,0">Stop server when last client disconnects</CheckBox>
+                        </Grid>
+                        <DockPanel DockPanel.Dock="Bottom">
+                            <Grid DockPanel.Dock="Top">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition></ColumnDefinition>
+                                    <ColumnDefinition></ColumnDefinition>
+                                    <ColumnDefinition Width="100"></ColumnDefinition>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition></RowDefinition>
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Vertical">
+                                    <DockPanel>
+                                        <TextBlock Margin="0,0,10,0">Sector:</TextBlock>
+                                        <TextBlock x:Name="lblServerSector" Width="Auto" MinWidth="80">0/0</TextBlock>
+                                    </DockPanel>
+                                    <DockPanel></DockPanel>
+                                    <DockPanel>
+                                        <TextBlock Margin="0,0,10,0">Clients:</TextBlock>
+                                        <TextBlock x:Name="lblServerClients" Width="Auto" MinWidth="20">0</TextBlock>
+                                    </DockPanel>
+                                </StackPanel>
+                                <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Vertical" HorizontalAlignment="Right">
+                                    <DockPanel DockPanel.Dock="Right">
+                                        <TextBlock Margin="0,0,10,0">Rate:</TextBlock>
+                                        <TextBlock x:Name="lblServerImmRate" Width="Auto" MinWidth="80">0 MB/sec</TextBlock>
+                                    </DockPanel>
+                                </StackPanel>
+                                <Grid Grid.Row="0" Grid.Column="2" Margin="2,2,2,2">
+                                    <Button x:Name="btnServerStart">Start</Button>
+                                    <Button x:Name="btnServerAbort" Visibility="Collapsed">Abort</Button>
+                                </Grid>
+                            </Grid>
+                            <my:SectorCompletionBar Height="22" Width="Auto" Margin="5,5,5,0" x:Name="pbServerProgress"/>
+                        </DockPanel>
+                        <!-- Fill the server tab with the file listing dock: -->
+                        <DockPanel>
+                            <DockPanel DockPanel.Dock="Top">
+                                <TextBlock DockPanel.Dock="Left">Files:</TextBlock>
+                                <TextBlock DockPanel.Dock="Right" x:Name="lblServerFilesCount">Count</TextBlock>
+                                <Grid />
+                            </DockPanel>
+                            <ListView x:Name="lstServerFiles" VirtualizingStackPanel.IsVirtualizing="True">
+                                <ListView.View>
+                                    <GridView VirtualizingStackPanel.IsVirtualizing="True">
+                                        <GridViewColumn Width="520" DisplayMemberBinding="{Binding Path=relativePath}">
+                                            <GridViewColumnHeader HorizontalContentAlignment="Left">
+                                                <TextBlock>Relative Path</TextBlock>
+                                            </GridViewColumnHeader>
+                                        </GridViewColumn>
+                                        <GridViewColumn Width="90" DisplayMemberBinding="{Binding Path=length,Converter={StaticResource fileSize}}">
+                                            <GridViewColumnHeader HorizontalContentAlignment="Left">
+                                                <TextBlock>Size</TextBlock>
+                                            </GridViewColumnHeader>
+                                        </GridViewColumn>
+                                    </GridView>
+                                </ListView.View>
+                            </ListView>
+                        </DockPanel>
+                    </DockPanel>
+                </TabItem>
+            </TabControl>
+        </Grid>
+    </DockPanel>
 </Window>
