@@ -110,7 +110,7 @@ namespace WellDunne.LanCaster
                 )
                 {
                     disk.RCVHWM = hwm;
-                    disk.RcvBuf = 1048576 * disk.RCVHWM;
+                    disk.RcvBuf = 1048576 * disk.RCVHWM * 4;
                     disk.Connect("inproc://disk");
                     diskACK.Connect("inproc://diskack");
 
@@ -198,7 +198,7 @@ namespace WellDunne.LanCaster
 
                     // Set the HWM for the disk PUSH so that the PUSH blocks if the PULL can't keep up writing:
                     disk.SNDHWM = hwm;
-                    disk.SndBuf = 1048576 * hwm;
+                    disk.SndBuf = 1048576 * hwm * 4;
                     disk.Bind("inproc://disk");
 
                     diskACK.Bind("inproc://diskack");
@@ -211,11 +211,15 @@ namespace WellDunne.LanCaster
 
                     data.RCVHWM = hwm;
 
-                    data.RcvBuf = 1048576 * 128 * 2;
+                    //data.RcvBuf = 1048576 * hwm * 4;
+                    // NOTE: work-around for MS bug in WinXP's networking stack. See http://support.microsoft.com/kb/201213 for details.
+                    data.RcvBuf = 0;
+
                     data.Connect(tsp.ToString().ToLower() + "://" + device + ":" + port);
                     data.Subscribe(subscription, Encoding.Unicode);
 
                     // Connect to the control request socket:
+                    ctl.RcvBuf = 1048576 * 4;
                     ctl.Connect("tcp://" + device + ":" + (port + 1).ToString());
 
                     Guid myIdentity = Guid.NewGuid();

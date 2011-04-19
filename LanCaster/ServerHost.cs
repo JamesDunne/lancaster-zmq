@@ -138,6 +138,7 @@ namespace WellDunne.LanCaster
                 using (Socket ctl = ctx.Socket(SocketType.REP))
                 {
                     // Bind the control reply socket:
+                    ctl.SndBuf = 1048576 * 20;
                     ctl.Bind(Transport.TCP, host.device, (host.port + 1));
 
                     // Wait for the sockets to bind:
@@ -304,7 +305,11 @@ namespace WellDunne.LanCaster
 
                     // TODO: use epgm:// protocol for multicast efficiency when we build that support into libzmq.dll for Windows.
                     //data.Rate = 20000L;
-                    data.SndBuf = chunkSize * hwm * 8;
+
+                    //data.SndBuf = chunkSize * hwm * 4;
+                    // NOTE: work-around for MS bug in WinXP's networking stack. See http://support.microsoft.com/kb/201213 for details.
+                    data.SndBuf = 0;
+                    
                     data.StringToIdentity(subscription, Encoding.Unicode);
                     data.Bind(tsp.ToString().ToLower() + "://" + device + ":" + port);
 
@@ -330,6 +335,7 @@ namespace WellDunne.LanCaster
                     int msgsPerMinute = 0;
 
                     HashSet<int> chunksSent = new HashSet<int>();
+                    Queue<int> deliveryOrder = new Queue<int>(hwm);
 
                     // Begin the data delivery loop:
                     while (true)
@@ -368,8 +374,8 @@ namespace WellDunne.LanCaster
                         {
                             msgsPerMinute = (int)((msgsSent * 60000L) / elapsed);
                             lastElapsedMilliseconds = sendTimer.ElapsedMilliseconds;
-                            for (int i = 0; (i < Math.Max(1, hwm / 4)) && (chunksSent.Count > 0); ++i)
-                                chunksSent.Remove(chunksSent.First());
+                            //for (int i = 0; (i < Math.Max(1, hwm * 3 / 4)) && (chunksSent.Count > 0); ++i)
+                            //    chunksSent.Remove(chunksSent.First());
                             msgsSent = 0;
                         }
 
@@ -482,7 +488,12 @@ namespace WellDunne.LanCaster
                                 data.Send(buf);
                             }
 
-                            // Keep track of the last time we sent this chunk:
+                            if (deliveryOrder.Count == hwm)
+                            {
+                                int firstChunk = deliveryOrder.Dequeue();
+                                chunksSent.Remove(firstChunk);
+                            }
+                            deliveryOrder.Enqueue(chunkIdx.Value);
                             chunksSent.Add(chunkIdx.Value);
                             //chunkSentLastElapsedMilliseconds[chunkIdx.Value] = sendTimer.ElapsedMilliseconds;
 
