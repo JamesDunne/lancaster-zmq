@@ -512,7 +512,7 @@ namespace WellDunne.LanCaster
                             ++msgsSent;
                         }
 
-                        Thread.Sleep(2);
+                        Thread.Sleep(chunkIdxs.Count * 4);
                     }
 
                     // TODO: break out of the while loop somehow

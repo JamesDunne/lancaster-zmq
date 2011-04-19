@@ -523,15 +523,19 @@ namespace WellDunne.LanCaster
                         diskWriterThread.Join();
                         Completed = true;
 
+                        // Wait to receive the rest of the messages:
                         while ((ctx.Poll(pollItems, 10000) == 1) && (ctl != null))
                         {
                         }
 
-                        // FIXME: this can be the wrong time to attempt Send.
+                        // Send the LEAVE message:
                         ctl.SendMore(ctl.Identity);
                         ctl.Send("LEAVE", Encoding.Unicode);
 
-                        ctl.RecvAll(10000);
+                        // Sit around a bit for the response, but we don't really care:
+                        while ((ctx.Poll(pollItems, 10000) == 1) && (ctl != null))
+                        {
+                        }
                     }
                     finally
                     {
