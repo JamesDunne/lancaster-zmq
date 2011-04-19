@@ -264,8 +264,6 @@ namespace WellDunne.LanCaster
 
                                 if ((naks != null) && (cmd == "DATA"))
                                 {
-                                    ++msgsRecv;
-
                                     if (packet.Count == 0) return DataSUBState.Recv;
                                     int chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
 
@@ -454,7 +452,8 @@ namespace WellDunne.LanCaster
                             int chunkIdx = BitConverter.ToInt32(idxPkt, 0);
                             //Console.WriteLine("Disk write {0} complete", chunkIdx);
                             naks[chunkIdx] = false;
-                            
+
+                            ++msgsRecv;
                             ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
 
                             // Notify the host that a chunk was written:

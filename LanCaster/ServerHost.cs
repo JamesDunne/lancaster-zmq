@@ -329,7 +329,7 @@ namespace WellDunne.LanCaster
                     int msgsSent = 0;
                     int msgsPerMinute = 0;
 
-                    Dictionary<int, long> chunkSentLastElapsedMilliseconds = new Dictionary<int, long>(numChunks);
+                    Queue<int> chunksSent = new Queue<int>(numChunks);
 
                     // Begin the data delivery loop:
                     while (true)
@@ -368,6 +368,8 @@ namespace WellDunne.LanCaster
                         {
                             msgsPerMinute = (int)((msgsSent * 60000L) / elapsed);
                             lastElapsedMilliseconds = sendTimer.ElapsedMilliseconds;
+                            for (int i = 0; (i < hwm / 4) && (chunksSent.Count > 0); ++i)
+                                chunksSent.Dequeue();
                             msgsSent = 0;
                         }
 
@@ -412,79 +414,84 @@ namespace WellDunne.LanCaster
                             }
                         }
 
-                        int? chunkIdx = null;
+                        if (!haveNewNAKs)
+                        {
+                            Thread.Sleep(1);
+                            continue;
+                        }
+                        
+                        haveNewNAKs = false;
+                        List<int> chunkIdxs;
                         lock (clientLock)
                         {
                             long elapsedMsec = sendTimer.ElapsedMilliseconds;
 
-                            chunkIdx = (
-                                from cli in
-                                    (
-                                        // Order the clients by number of chunks left to receive:
-                                        from cli in clients.Values
-                                        where cli.HasNAKs && !cli.IsTimedOut
-                                        let naks = cli.NAK.Cast<bool>().Take(numChunks).Count(b => b)
-                                        orderby naks ascending
-                                        select cli
-                                    )
-                                // Find the NAKs for the client with the least amount of NAKs to receive:
-                                from x in cli.NAK.Cast<bool>().Take(numChunks).Select((b, i) => new { b, i })
-                                where x.b
-                                where !chunkSentLastElapsedMilliseconds.ContainsKey(x.i) || (elapsedMsec - chunkSentLastElapsedMilliseconds[x.i] > 500L)
-                                select (int?)x.i
-                            ).FirstOrDefault();
+                            chunkIdxs = (
+                                from i in Enumerable.Range(0, numChunks)
+                                let countNAKdClients = clients.Values.Count(cli => !cli.IsTimedOut && cli.HasNAKs && cli.NAK[i])
+                                where countNAKdClients > 0
+                                where !chunksSent.Contains(i)
+                                orderby countNAKdClients descending
+                                select i
+                            ).Take(hwm).ToList();
                         }
 
                         // No chunks to send? Sleep.
-                        if (!chunkIdx.HasValue)
+                        if (chunkIdxs.Count == 0)
                         {
                             Thread.Sleep(1);
                             continue;
                         }
 
-                        // Chunk index first:
-                        trace("SEND chunk: {0}", chunkIdx.Value);
-                        data.SendMore(this.subscription, Encoding.Unicode);
-                        data.SendMore("DATA", Encoding.Unicode);
-                        data.SendMore(BitConverter.GetBytes(chunkIdx.Value));
+                        foreach (int idx in chunkIdxs)
+                        {
+                            int? chunkIdx = idx;
 
-                        // Chunk size:
-                        int currChunkSize;
-                        if (!testMode)
-                        {
-                            tarball.Seek((long)chunkIdx.Value * chunkSize, SeekOrigin.Begin);
-                            currChunkSize = tarball.Read(buf, 0, chunkSize);
-                        }
-                        else
-                        {
-                            if (lastChunkSize > 0)
-                                currChunkSize = (chunkIdx.Value < (numChunks - 1)) ? chunkSize : lastChunkSize;
+                            // Chunk index first:
+                            trace("SEND chunk: {0}", chunkIdx.Value);
+                            data.SendMore(this.subscription, Encoding.Unicode);
+                            data.SendMore("DATA", Encoding.Unicode);
+                            data.SendMore(BitConverter.GetBytes(chunkIdx.Value));
+
+                            // Chunk size:
+                            int currChunkSize;
+                            if (!testMode)
+                            {
+                                tarball.Seek((long)chunkIdx.Value * chunkSize, SeekOrigin.Begin);
+                                currChunkSize = tarball.Read(buf, 0, chunkSize);
+                            }
                             else
-                                currChunkSize = chunkSize;
+                            {
+                                if (lastChunkSize > 0)
+                                    currChunkSize = (chunkIdx.Value < (numChunks - 1)) ? chunkSize : lastChunkSize;
+                                else
+                                    currChunkSize = chunkSize;
+                            }
+
+                            if (currChunkSize < chunkSize)
+                            {
+                                // Copy to an exact-sized temporary buffer for the last uneven sized chunk:
+                                byte[] tmpBuf = new byte[currChunkSize];
+                                Array.Copy(buf, tmpBuf, currChunkSize);
+                                data.Send(tmpBuf);
+                                tmpBuf = null;
+                            }
+                            else
+                            {
+                                // Send the exact-sized chunk:
+                                data.Send(buf);
+                            }
+
+                            // Keep track of the last time we sent this chunk:
+                            chunksSent.Enqueue(chunkIdx.Value);
+                            //chunkSentLastElapsedMilliseconds[chunkIdx.Value] = sendTimer.ElapsedMilliseconds;
+
+                            if (ChunkSent != null) ChunkSent(this, chunkIdx.Value);
+                            trace("COMPLETE chunk: {0}", chunkIdx.Value);
+
+                            //Thread.Sleep(1);
+                            ++msgsSent;
                         }
-
-                        if (currChunkSize < chunkSize)
-                        {
-                            // Copy to an exact-sized temporary buffer for the last uneven sized chunk:
-                            byte[] tmpBuf = new byte[currChunkSize];
-                            Array.Copy(buf, tmpBuf, currChunkSize);
-                            data.Send(tmpBuf);
-                            tmpBuf = null;
-                        }
-                        else
-                        {
-                            // Send the exact-sized chunk:
-                            data.Send(buf);
-                        }
-
-                        // Keep track of the last time we sent this chunk:
-                        chunkSentLastElapsedMilliseconds[chunkIdx.Value] = sendTimer.ElapsedMilliseconds;
-
-                        if (ChunkSent != null) ChunkSent(this, chunkIdx.Value);
-                        trace("COMPLETE chunk: {0}", chunkIdx.Value);
-
-                        Thread.Sleep(1);
-                        ++msgsSent;
                     }
 
                     // TODO: break out of the while loop somehow
