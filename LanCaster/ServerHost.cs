@@ -336,6 +336,7 @@ namespace WellDunne.LanCaster
 
                     HashSet<int> chunksSent = new HashSet<int>();
                     Queue<int> deliveryOrder = new Queue<int>(hwm);
+                    int chunkWindowStart = 0;
 
                     // Begin the data delivery loop:
                     while (true)
@@ -433,13 +434,18 @@ namespace WellDunne.LanCaster
                             long elapsedMsec = sendTimer.ElapsedMilliseconds;
 
                             chunkIdxs = (
-                                from i in Enumerable.Range(0, numChunks)
+                                from z in Enumerable.Range(0, numChunks)
+                                let i = (chunkWindowStart + z) % numChunks
                                 let countNAKdClients = clients.Values.Count(cli => !cli.IsTimedOut && cli.HasNAKs && cli.NAK[i])
                                 where countNAKdClients > 0
+#if false
                                 where !chunksSent.Contains(i)
+#endif
                                 orderby countNAKdClients descending
                                 select i
-                            ).Take(hwm).ToList();
+                            ).Take(Math.Max(1, hwm)).ToList();
+
+                            chunkWindowStart = chunkIdxs.LastOrDefault();
                         }
 
                         // No chunks to send? Sleep.
@@ -488,6 +494,7 @@ namespace WellDunne.LanCaster
                                 data.Send(buf);
                             }
 
+#if false
                             if (deliveryOrder.Count == hwm)
                             {
                                 int firstChunk = deliveryOrder.Dequeue();
@@ -495,6 +502,7 @@ namespace WellDunne.LanCaster
                             }
                             deliveryOrder.Enqueue(chunkIdx.Value);
                             chunksSent.Add(chunkIdx.Value);
+#endif
                             //chunkSentLastElapsedMilliseconds[chunkIdx.Value] = sendTimer.ElapsedMilliseconds;
 
                             if (ChunkSent != null) ChunkSent(this, chunkIdx.Value);
@@ -503,6 +511,8 @@ namespace WellDunne.LanCaster
                             //Thread.Sleep(1);
                             ++msgsSent;
                         }
+
+                        Thread.Sleep(2);
                     }
 
                     // TODO: break out of the while loop somehow

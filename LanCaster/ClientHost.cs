@@ -110,7 +110,7 @@ namespace WellDunne.LanCaster
                 )
                 {
                     disk.RCVHWM = hwm;
-                    disk.RcvBuf = 1048576 * disk.RCVHWM * 4;
+                    //disk.RcvBuf = 1048576 * disk.RCVHWM * 4;
                     disk.Connect("inproc://disk");
                     diskACK.Connect("inproc://diskack");
 
@@ -162,7 +162,7 @@ namespace WellDunne.LanCaster
 
                     while (!done)
                     {
-                        if (ctx.Poll(pollItems) == 0)
+                        if (ctx.Poll(pollItems, 10000L) == 0)
                         {
                             Thread.Sleep(1);
                         }
@@ -198,12 +198,12 @@ namespace WellDunne.LanCaster
 
                     // Set the HWM for the disk PUSH so that the PUSH blocks if the PULL can't keep up writing:
                     disk.SNDHWM = hwm;
-                    disk.SndBuf = 1048576 * hwm * 4;
+                    //disk.SndBuf = 1048576 * hwm * 4;
                     disk.Bind("inproc://disk");
 
                     diskACK.Bind("inproc://diskack");
 
-                    Thread.Sleep(500);
+                    //Thread.Sleep(500);
 
                     // Create the disk PULL thread:
                     Thread diskWriterThread = new Thread(new ParameterizedThreadStart(DiskWriterThread));
@@ -380,6 +380,7 @@ namespace WellDunne.LanCaster
                                 if (packet.Count == 0) return ControlREQState.Nothing;
                                 numChunks = BitConverter.ToInt32(packet.Dequeue(), 0);
                                 numBytes = ((numChunks + 7) & ~7) >> 3;
+                                nakBuf = new byte[numBytes];
                                 if (packet.Count == 0) return ControlREQState.Nothing;
                                 chunkSize = BitConverter.ToInt32(packet.Dequeue(), 0);
                                 if (packet.Count == 0) return ControlREQState.Nothing;
@@ -425,15 +426,15 @@ namespace WellDunne.LanCaster
                             {
                                 if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
 
+                                if (nakBuf == null) return ControlREQState.Nothing;
+
                                 // Send our NAKs:
                                 ctl.SendMore(ctl.Identity);
                                 ctl.SendMore("NAKS", Encoding.Unicode);
                                 // TODO: RLE!
-                                nakBuf = new byte[numBytes];
                                 naks.CopyTo(nakBuf, 0);
                                 trace("SEND NAK");
                                 ctl.Send(nakBuf);
-                                nakBuf = null;
 
                                 return ControlREQState.RecvNAKS;
                             }),
