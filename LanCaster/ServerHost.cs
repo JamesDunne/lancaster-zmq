@@ -329,7 +329,7 @@ namespace WellDunne.LanCaster
                     int msgsSent = 0;
                     int msgsPerMinute = 0;
 
-                    Queue<int> chunksSent = new Queue<int>(numChunks);
+                    HashSet<int> chunksSent = new HashSet<int>();
 
                     // Begin the data delivery loop:
                     while (true)
@@ -368,8 +368,8 @@ namespace WellDunne.LanCaster
                         {
                             msgsPerMinute = (int)((msgsSent * 60000L) / elapsed);
                             lastElapsedMilliseconds = sendTimer.ElapsedMilliseconds;
-                            for (int i = 0; (i < hwm / 4) && (chunksSent.Count > 0); ++i)
-                                chunksSent.Dequeue();
+                            for (int i = 0; (i < Math.Max(1, hwm / 4)) && (chunksSent.Count > 0); ++i)
+                                chunksSent.Remove(chunksSent.First());
                             msgsSent = 0;
                         }
 
@@ -483,7 +483,7 @@ namespace WellDunne.LanCaster
                             }
 
                             // Keep track of the last time we sent this chunk:
-                            chunksSent.Enqueue(chunkIdx.Value);
+                            chunksSent.Add(chunkIdx.Value);
                             //chunkSentLastElapsedMilliseconds[chunkIdx.Value] = sendTimer.ElapsedMilliseconds;
 
                             if (ChunkSent != null) ChunkSent(this, chunkIdx.Value);

@@ -270,135 +270,140 @@ namespace WellDunne.LanCaster.Server
         private bool wroteLegend = false;
         private int lastWrittenChunk = -1;
 
+        private readonly object lineWriter = new object();
+
         void RenderProgress(ServerHost host, bool display)
         {
-            int numChunks = host.NumChunks;
-            if (numChunks == 0) return;
-
-            int usableWidth = Console.WindowWidth - 3;
-
-            int blocks = numChunks / usableWidth;
-            int blocksRem = numChunks % usableWidth;
-
-            int subblocks = usableWidth / numChunks;
-            int subblocksRem = usableWidth % numChunks;
-
-            if (!display)
+            lock (lineWriter)
             {
-                if (blocks > 0) display = (DateTimeOffset.UtcNow.Subtract(lastDisplayTime).TotalMilliseconds >= 500d) || (lastChunkBlock != (lastChunkBlock = lastWrittenChunk / blocks));
-                else display = true;
-            }
+                int numChunks = host.NumChunks;
+                if (numChunks == 0) return;
 
-            if (display)
-            {
-                lastDisplayTime = DateTimeOffset.UtcNow;
-                if (!wroteLegend)
+                int usableWidth = Console.WindowWidth - 3;
+
+                int blocks = numChunks / usableWidth;
+                int blocksRem = numChunks % usableWidth;
+
+                int subblocks = usableWidth / numChunks;
+                int subblocksRem = usableWidth % numChunks;
+
+                if (!display)
                 {
-                    Console.WriteLine();
-                    Console.WriteLine(" '-' no NAKs      '*' some NAKs      '#' all NAKs      'S' currently sending");
-                    Console.WriteLine();
-                    wroteLegend = true;
+                    if (blocks > 0) display = (DateTimeOffset.UtcNow.Subtract(lastDisplayTime).TotalMilliseconds >= 500d) || (lastChunkBlock != (lastChunkBlock = lastWrittenChunk / blocks));
+                    else display = true;
                 }
 
-                var clients = host.Clients;
-                string backup = new string('\b', Console.WindowWidth - 1);
-                Console.Write(backup);
-#if true
-                string spaces = new string(' ', Console.WindowWidth - 1);
-                Console.Write(spaces);
-                Console.Write(backup);
-                // Write ACK rates:
-                foreach (var cli in clients)
+                if (display)
                 {
-                    int bps = (cli.ACKsPerMinute * (host.ChunkSize / 60));
-                    string name;
-                    double rate;
-                    if (bps >= 1048576)
+                    lastDisplayTime = DateTimeOffset.UtcNow;
+                    if (!wroteLegend)
                     {
-                        rate = bps / 1048576d;
-                        name = "MB/s";
+                        Console.WriteLine();
+                        Console.WriteLine(" '-' no NAKs      '*' some NAKs      '#' all NAKs      'S' currently sending");
+                        Console.WriteLine();
+                        wroteLegend = true;
                     }
-                    else if (bps >= 1024)
+
+                    var clients = host.Clients;
+                    string backup = new string('\b', Console.WindowWidth - 1);
+                    Console.Write(backup);
+#if true
+                    string spaces = new string(' ', Console.WindowWidth - 1);
+                    Console.Write(spaces);
+                    Console.Write(backup);
+                    // Write ACK rates:
+                    foreach (var cli in clients)
                     {
-                        rate = bps / 1024d;
-                        name = "KB/s";
+                        int bps = (cli.ACKsPerMinute * (host.ChunkSize / 60));
+                        string name;
+                        double rate;
+                        if (bps >= 1048576)
+                        {
+                            rate = bps / 1048576d;
+                            name = "MB/s";
+                        }
+                        else if (bps >= 1024)
+                        {
+                            rate = bps / 1024d;
+                            name = "KB/s";
+                        }
+                        else
+                        {
+                            rate = bps;
+                            name = " B/s";
+                        }
+                        Console.Write("{0,8} {1}", rate.ToString("#,##0.00"), name);
+                    }
+                    Console.WriteLine();
+#endif
+                    Console.Write('[');
+
+                    BitArray naks = new BitArray(host.NumBitArrayBytes * 8, false);
+                    foreach (var cli in clients)
+                    {
+                        naks = naks.Or(cli.NAK);
+                    }
+
+                    IEnumerator<bool> boolACKs = naks.Cast<bool>().Take(host.NumChunks).GetEnumerator();
+                    if (blocks > 0)
+                    {
+                        int lastc = 0, c = 0, subc = 0;
+                        while (c < usableWidth)
+                        {
+                            int numBlocks = blocks;
+                            lastc = c++;
+                            if ((blocksRem > 0) && (subc++ >= blocksRem))
+                            {
+                                ++numBlocks;
+                                ++c;
+                                subc = 0;
+                            }
+
+                            bool allOn = true;
+                            bool allOff = false;
+                            for (int i = 0; (i < numBlocks) && boolACKs.MoveNext(); ++i)
+                            {
+                                bool curr = boolACKs.Current;
+                                allOn = allOn & curr;
+                                allOff = allOff | curr;
+                            }
+
+                            for (int x = lastc; (x < c) && (c < usableWidth); ++x)
+                            {
+                                if ((lastWrittenChunk >= c * blocks) && (lastWrittenChunk < (c + 1) * blocks)) Console.Write('S');
+                                else if (allOn) Console.Write('#');
+                                else if (allOff) Console.Write('*');
+                                else Console.Write('-');
+                            }
+                        }
                     }
                     else
                     {
-                        rate = bps;
-                        name = " B/s";
-                    }
-                    Console.Write("{0,8} {1}", rate.ToString("#,##0.00"), name);
-                }
-                Console.WriteLine();
-#endif
-                Console.Write('[');
-
-                BitArray naks = new BitArray(host.NumBitArrayBytes * 8, false);
-                foreach (var cli in clients)
-                {
-                    naks = naks.Or(cli.NAK);
-                }
-
-                IEnumerator<bool> boolACKs = naks.Cast<bool>().Take(host.NumChunks).GetEnumerator();
-                if (blocks > 0)
-                {
-                    int lastc = 0, c = 0, subc = 0;
-                    while (c < usableWidth)
-                    {
-                        int numBlocks = blocks;
-                        lastc = c++;
-                        if ((blocksRem > 0) && (subc++ >= blocksRem))
+                        int lastc = 0, c = 0, subc = 0;
+                        for (int i = 0; i < numChunks; ++i)
                         {
-                            ++numBlocks;
-                            ++c;
-                            subc = 0;
-                        }
+                            lastc = c;
+                            c += subblocks;
+                            if ((subblocksRem > 0) && (subc++ >= subblocksRem))
+                            {
+                                ++c;
+                                subc = 0;
+                            }
 
-                        bool allOn = true;
-                        bool allOff = false;
-                        for (int i = 0; (i < numBlocks) && boolACKs.MoveNext(); ++i)
-                        {
+                            if (!boolACKs.MoveNext()) break;
                             bool curr = boolACKs.Current;
-                            allOn = allOn & curr;
-                            allOff = allOff | curr;
-                        }
 
-                        for (int x = lastc; (x < c) && (c < usableWidth); ++x)
-                        {
-                            if ((lastWrittenChunk >= c * blocks) && (lastWrittenChunk < (c + 1) * blocks)) Console.Write('S');
-                            else if (allOn) Console.Write('#');
-                            else if (allOff) Console.Write('*');
-                            else Console.Write('-');
+                            for (int x = lastc; (x < c) && (c < usableWidth); ++x)
+                            {
+                                if (lastWrittenChunk == i) Console.Write('S');
+                                else if (curr) Console.Write('#');
+                                else Console.Write('-');
+                            }
                         }
                     }
+
+                    Console.Write(']');
                 }
-                else
-                {
-                    int lastc = 0, c = 0, subc = 0;
-                    for (int i = 0; i < numChunks; ++i)
-                    {
-                        lastc = c;
-                        c += subblocks;
-                        if ((subblocksRem > 0) && (subc++ >= subblocksRem))
-                        {
-                            ++c;
-                            subc = 0;
-                        }
-
-                        if (!boolACKs.MoveNext()) break;
-                        bool curr = boolACKs.Current;
-
-                        for (int x = lastc; (x < c) && (c < usableWidth); ++x)
-                        {
-                            if (lastWrittenChunk == i) Console.Write('S');
-                            else if (curr) Console.Write('#');
-                            else Console.Write('-');
-                        }
-                    }
-                }
-
-                Console.Write(']');
             }
         }
 
