@@ -22,8 +22,19 @@ namespace WellDunne.LanCaster.Client
         private bool testMode;
         private int ioThreads;
 
+        private int consoleWidth;
+
         void Run(string[] args)
         {
+            try
+            {
+                consoleWidth = Console.WindowWidth;
+            }
+            catch (IOException)
+            {
+                consoleWidth = 80;
+            }
+
             try
             {
                 Transport tsp = Transport.TCP;
@@ -174,7 +185,7 @@ namespace WellDunne.LanCaster.Client
             {
                 if (numChunks == 0) return;
 
-                int usableWidth = Console.WindowWidth - 3;
+                int usableWidth = consoleWidth - 3;
 
                 int blocks = numChunks / usableWidth;
                 int blocksRem = numChunks % usableWidth;
@@ -199,10 +210,10 @@ namespace WellDunne.LanCaster.Client
                         wroteLegend = true;
                     }
 
-                    string backup = new string('\b', Console.WindowWidth);
+                    string backup = new string('\b', consoleWidth);
                     Console.Write(backup);
 #if true
-                    string spaces = new string(' ', Console.WindowWidth - 1);
+                    string spaces = new string(' ', consoleWidth - 1);
                     Console.Write(spaces);
                     Console.Write(backup);
                     // Write ACK rate:
@@ -367,7 +378,7 @@ namespace WellDunne.LanCaster.Client
             return new BitArray(nakBuf).Clone() as BitArray;
         }
 
-        private static void DisplayHeader()
+        private void DisplayHeader()
         {
             // Displays the error text wrapped to the console's width:
             Console.Error.WriteLine(
@@ -382,14 +393,14 @@ namespace WellDunne.LanCaster.Client
 @"(C)opyright 2011 James S. Dunne <lancaster@bittwiddlers.org>",
                         }
                         // Wrap the lines to the window width:
-                        from wrappedLine in line.WordWrap(Console.WindowWidth - 1)
+                        from wrappedLine in line.WordWrap(consoleWidth - 1)
                         select wrappedLine
                     ).ToArray()
                 )
             );
         }
 
-        private static void DisplayUsage()
+        private void DisplayUsage()
         {
             DisplayHeader();
 
@@ -412,8 +423,8 @@ new[] { @"-w <hwm>",            @"Set the high-water mater (HWM) which is the ma
                     (
                         from cols in prms
                         let wrap1 = (cols.Length == 1) ? null
-                            : cols[1].WordWrap(Console.WindowWidth - maxprmLength - 2)
-                        let tmp = (cols.Length == 1) ? cols[0].WordWrap(Console.WindowWidth - 1)
+                            : cols[1].WordWrap(consoleWidth - maxprmLength - 2)
+                        let tmp = (cols.Length == 1) ? cols[0].WordWrap(consoleWidth - 1)
                             : Enumerable.Repeat(cols[0] + new string(' ', maxprmLength - cols[0].Length + 1) + wrap1.First(), 1)
                               .Concat(
                                 from line in wrap1.Skip(1)

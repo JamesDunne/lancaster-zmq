@@ -16,8 +16,19 @@ namespace WellDunne.LanCaster.Server
             new Program().Run(args);
         }
 
+        int consoleWidth;
+
         void Run(string[] args)
         {
+            try
+            {
+                consoleWidth = Console.WindowWidth;
+            }
+            catch (IOException)
+            {
+                consoleWidth = 80;
+            }
+
             Transport tsp = Transport.TCP;
             string endpoint = "*";
             string subscription = String.Empty;
@@ -279,7 +290,7 @@ namespace WellDunne.LanCaster.Server
                 int numChunks = host.NumChunks;
                 if (numChunks == 0) return;
 
-                int usableWidth = Console.WindowWidth - 3;
+                int usableWidth = consoleWidth - 3;
 
                 int blocks = numChunks / usableWidth;
                 int blocksRem = numChunks % usableWidth;
@@ -305,10 +316,10 @@ namespace WellDunne.LanCaster.Server
                     }
 
                     var clients = host.Clients;
-                    string backup = new string('\b', Console.WindowWidth - 1);
+                    string backup = new string('\b', consoleWidth - 1);
                     Console.Write(backup);
 #if true
-                    string spaces = new string(' ', Console.WindowWidth - 1);
+                    string spaces = new string(' ', consoleWidth - 1);
                     Console.Write(spaces);
                     Console.Write(backup);
                     // Write ACK rates:
@@ -407,7 +418,7 @@ namespace WellDunne.LanCaster.Server
             }
         }
 
-        private static void DisplayHeader()
+        private void DisplayHeader()
         {
             // Displays the error text wrapped to the console's width:
             Console.Error.WriteLine(
@@ -422,14 +433,14 @@ namespace WellDunne.LanCaster.Server
 @"(C)opyright 2011 James S. Dunne <lancaster@bittwiddlers.org>",
                         }
                         // Wrap the lines to the window width:
-                        from wrappedLine in line.WordWrap(Console.WindowWidth - 1)
+                        from wrappedLine in line.WordWrap(consoleWidth - 1)
                         select wrappedLine
                     ).ToArray()
                 )
             );
         }
 
-        private static void DisplayUsage()
+        private void DisplayUsage()
         {
             DisplayHeader();
 
@@ -458,8 +469,8 @@ new[] { @"-t",                  @"Set test mode where we do not read from disk a
                     (
                         from cols in prms
                         let wrap1 = (cols.Length == 1) ? null
-                            : cols[1].WordWrap(Console.WindowWidth - maxprmLength - 2)
-                        let tmp = (cols.Length == 1) ? cols[0].WordWrap(Console.WindowWidth - 1)
+                            : cols[1].WordWrap(consoleWidth - maxprmLength - 2)
+                        let tmp = (cols.Length == 1) ? cols[0].WordWrap(consoleWidth - 1)
                             : Enumerable.Repeat(cols[0] + new string(' ', maxprmLength - cols[0].Length + 1) + wrap1.First(), 1)
                               .Concat(
                                 from line in wrap1.Skip(1)
