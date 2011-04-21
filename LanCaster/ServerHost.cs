@@ -299,7 +299,7 @@ namespace WellDunne.LanCaster
                 Context ctx = (Context)threadContext;
                 using (Socket data = ctx.Socket(SocketType.PUB))
                 {
-                    data.SNDHWM = hwm * 2;
+                    data.SNDHWM = hwm;
 
                     // Bind the data publisher socket:
 
@@ -334,8 +334,8 @@ namespace WellDunne.LanCaster
                     int msgsSent = 0;
                     int msgsPerMinute = 0;
 
-                    HashSet<int> chunksSent = new HashSet<int>();
-                    Queue<int> deliveryOrder = new Queue<int>(hwm);
+                    //HashSet<int> chunksSent = new HashSet<int>();
+                    //Queue<int> deliveryOrder = new Queue<int>(hwm);
                     int chunkWindowStart = 0;
 
                     // Begin the data delivery loop:
@@ -422,11 +422,11 @@ namespace WellDunne.LanCaster
                             }
                         }
 
-                        //if (!haveNewNAKs)
-                        //{
-                        //    Thread.Sleep(1);
-                        //    continue;
-                        //}
+                        if (!haveNewNAKs)
+                        {
+                            Thread.Sleep(1);
+                            continue;
+                        }
                         
                         if ((maxClientACKperMinutes > 0) && (msgsPerMinute > 0) && (msgsPerMinute >= maxClientACKperMinutes))
                         {
@@ -449,24 +449,24 @@ namespace WellDunne.LanCaster
 #endif
                                 orderby countNAKdClients descending
                                 select i
-                            ).Take(Math.Max(1, hwm)).ToList();
+                            ).Take(16).ToList();
 
                             chunkWindowStart = chunkIdxs.LastOrDefault();
                         }
 
-                        // No chunks to send? Sleep.
-                        if (chunkIdxs.Count == 0)
-                        {
-                            Thread.Sleep(1);
-                            continue;
-                        }
+                        //// No chunks to send? Sleep.
+                        //if (chunkIdxs.Count == 0)
+                        //{
+                        //    Thread.Sleep(1);
+                        //    continue;
+                        //}
 
                         foreach (int idx in chunkIdxs)
                         {
                             int? chunkIdx = idx;
 
                             // Chunk index first:
-                            trace("SEND chunk: {0}", chunkIdx.Value);
+                            //trace("SEND chunk: {0}", chunkIdx.Value);
                             data.SendMore(this.subscription, Encoding.Unicode);
                             data.SendMore("DATA", Encoding.Unicode);
                             data.SendMore(BitConverter.GetBytes(chunkIdx.Value));
@@ -512,7 +512,7 @@ namespace WellDunne.LanCaster
                             //chunkSentLastElapsedMilliseconds[chunkIdx.Value] = sendTimer.ElapsedMilliseconds;
 
                             if (ChunkSent != null) ChunkSent(this, chunkIdx.Value);
-                            trace("COMPLETE chunk: {0}", chunkIdx.Value);
+                            //trace("COMPLETE chunk: {0}", chunkIdx.Value);
 
                             Thread.Sleep(1);
                             ++msgsSent;

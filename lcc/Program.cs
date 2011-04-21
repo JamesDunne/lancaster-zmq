@@ -332,7 +332,7 @@ namespace WellDunne.LanCaster.Client
                 Console.WriteLine("{0,15} {1}", fi.Length.ToString("##,#"), fi.RelativePath);
             }
             Console.WriteLine();
-            Console.WriteLine("{0,15} chunks @ {1,13} bytes/chunk", numChunks.ToString("##,#"), host.ChunkSize.ToString("##,#"));
+            Console.WriteLine("{0,15} chunks @ {1,13} bytes/chunk", host.NumChunks.ToString("##,0"), host.ChunkSize.ToString("##,0"));
 
             this.numChunks = host.NumChunks;
             int numChunkBytes = host.NumBytes;
