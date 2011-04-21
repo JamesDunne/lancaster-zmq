@@ -534,27 +534,27 @@ namespace WellDunne.LanCaster
                             }
                         }
 
-                        PollItem[] recvPoll = new PollItem[1];
-                        recvPoll[0] = ctl.CreatePollItem(IOMultiPlex.POLLIN);
-                        recvPoll[0].PollInHandler += new PollHandler(controlFSM.StateMasheen);
-
+                        // Wait for the disk writer to finish up:
                         shuttingDown = true;
                         diskWriterThread.Join();
-                        Completed = true;
 
-                        // Wait to receive the rest of the messages:
-                        while ((ctx.Poll(recvPoll, 100) == 1) && (ctl != null))
+                        // If we were last to await some response, receive it:
+                        if (controlFSM.CurrentState == ControlREQState.RecvALIVE || controlFSM.CurrentState == ControlREQState.RecvJOIN || controlFSM.CurrentState == ControlREQState.RecvNAKS)
                         {
+                            PollItem[] recvPoll = new PollItem[1];
+                            recvPoll[0] = ctl.CreatePollItem(IOMultiPlex.POLLIN);
+                            recvPoll[0].PollInHandler += new PollHandler(controlFSM.StateMasheen);
+
+                            // Wait a bit to receive the response:
+                            for (int i = 0; (i < 20) && ((ctx.Poll(recvPoll, 100) == 1) && (ctl != null)); ++i)
+                            {
+                            }
                         }
 
                         // Send the LEAVE message:
                         ctl.SendMore(ctl.Identity);
                         ctl.Send("LEAVE", Encoding.Unicode);
-
-                        // Sit around a bit for the response, but we don't really care:
-                        while ((ctx.Poll(recvPoll, 100) == 1) && (ctl != null))
-                        {
-                        }
+                        Completed = true;
                     }
                     finally
                     {

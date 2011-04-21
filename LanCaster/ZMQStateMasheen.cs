@@ -23,6 +23,8 @@ namespace WellDunne.LanCaster
         private Tstate currentState;
         private Dictionary<Tstate, State> states;
 
+        internal Tstate CurrentState { get { return currentState; } set { currentState = value; } }
+
         public ZMQStateMasheen(Tstate initial, params State[] states)
         {
             this.currentState = initial;

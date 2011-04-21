@@ -430,7 +430,7 @@ namespace WellDunne.LanCaster
                         
                         if ((maxClientACKperMinutes > 0) && (msgsPerMinute > 0) && (msgsPerMinute >= maxClientACKperMinutes))
                         {
-                            Thread.Sleep(((msgsPerMinute - maxClientACKperMinutes) / 60) * 2);
+                            Thread.Sleep(((msgsPerMinute - maxClientACKperMinutes) / 60) * 4);
                         }
 
                         haveNewNAKs = false;
