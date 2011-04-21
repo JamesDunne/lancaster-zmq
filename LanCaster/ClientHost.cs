@@ -238,6 +238,8 @@ namespace WellDunne.LanCaster
                     int ackCount = -1;
                     byte[] nakBuf = null;
 
+                    bool shuttingDown = false;
+
                     Stopwatch recvTimer = Stopwatch.StartNew();
                     long lastElapsedMilliseconds = recvTimer.ElapsedMilliseconds;
                     int msgsRecv = 0;
@@ -298,6 +300,8 @@ namespace WellDunne.LanCaster
                                 }
                                 else if (cmd == "PING")
                                 {
+                                    if (shuttingDown) return DataSUBState.Recv;
+
                                     controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendALIVE, null));
                                     return DataSUBState.Recv;
                                 }
@@ -314,18 +318,21 @@ namespace WellDunne.LanCaster
                             ControlREQState.SendJOIN,
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.Nothing, (sock, revents) =>
                             {
-                                // If we ran up the timer, send more NAKs:
-                                if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 100d)
+                                if (!shuttingDown)
                                 {
-                                    lastSentNAKs = DateTimeOffset.UtcNow;
-                                    controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendNAKS, null));
-                                }
+                                    // If we ran up the timer, send more NAKs:
+                                    if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 100d)
+                                    {
+                                        lastSentNAKs = DateTimeOffset.UtcNow;
+                                        controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendNAKS, null));
+                                    }
 
-                                if (controlStateQueue.Count > 0)
-                                {
-                                    var msg = controlStateQueue.Dequeue();
-                                    tmpControlState = msg.Object;
-                                    return msg.NewState;
+                                    if (controlStateQueue.Count > 0)
+                                    {
+                                        var msg = controlStateQueue.Dequeue();
+                                        tmpControlState = msg.Object;
+                                        return msg.NewState;
+                                    }
                                 }
 
                                 // A dummy OUT event? We don't have anything to send, so just sleep:
@@ -334,6 +341,7 @@ namespace WellDunne.LanCaster
                             }),
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendALIVE, (sock, revents) =>
                             {
+                                if (shuttingDown) return ControlREQState.Nothing;
                                 if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
 
                                 ctl.SendMore(ctl.Identity);
@@ -358,6 +366,7 @@ namespace WellDunne.LanCaster
                             }),
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendJOIN, (sock, revents) =>
                             {
+                                if (shuttingDown) return ControlREQState.Nothing;
                                 if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
 
                                 // Send a JOIN request:
@@ -428,6 +437,7 @@ namespace WellDunne.LanCaster
                             }),
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendNAKS, (sock, revents) =>
                             {
+                                if (shuttingDown) return ControlREQState.Nothing;
                                 if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
 
                                 if (nakBuf == null) return ControlREQState.Nothing;
@@ -524,11 +534,12 @@ namespace WellDunne.LanCaster
                             }
                         }
 
+                        shuttingDown = true;
                         diskWriterThread.Join();
                         Completed = true;
 
                         // Wait to receive the rest of the messages:
-                        while ((ctx.Poll(pollItems, 10000) == 1) && (ctl != null))
+                        while ((ctx.Poll(pollItems, 100) == 1) && (ctl != null))
                         {
                         }
 
@@ -537,7 +548,7 @@ namespace WellDunne.LanCaster
                         ctl.Send("LEAVE", Encoding.Unicode);
 
                         // Sit around a bit for the response, but we don't really care:
-                        while ((ctx.Poll(pollItems, 10000) == 1) && (ctl != null))
+                        while ((ctx.Poll(pollItems, 100) == 1) && (ctl != null))
                         {
                         }
                     }
