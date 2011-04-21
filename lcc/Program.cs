@@ -249,7 +249,9 @@ namespace WellDunne.LanCaster.Client
 #endif
                     Console.Write('[');
 
-                    IEnumerator<bool> boolACKs = host.NAKs.Cast<bool>().Take(numChunks).GetEnumerator();
+                    // We must clone due to thread-safety issues using enumerators:
+                    BitArray naks = host.NAKs.Clone() as BitArray;
+                    IEnumerator<bool> boolACKs = naks.Cast<bool>().Take(numChunks).GetEnumerator();
                     if (blocks > 0)
                     {
                         int lastc = 0, c = 0, subc = 0;
@@ -325,7 +327,8 @@ namespace WellDunne.LanCaster.Client
             if (!testMode)
             {
                 // Update the state file:
-                host.NAKs.CopyTo(nakBuf, 0);
+                BitArray naks = host.NAKs.Clone() as BitArray;
+                naks.CopyTo(nakBuf, 0);
                 localStateStream.Seek(0L, SeekOrigin.Begin);
                 localStateStream.Write(nakBuf, 0, nakBuf.Length);
                 localStateStream.Flush();
