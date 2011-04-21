@@ -179,6 +179,30 @@ namespace WellDunne.LanCaster.Client
         private DateTimeOffset lastDisplayTime;
         private readonly object lineWriter = new object();
 
+        void WriteRate(int bps)
+        {
+            string name;
+            double rate;
+
+            if (bps >= 1048576)
+            {
+                rate = bps / 1048576d;
+                name = "MB/s";
+            }
+            else if (bps >= 1024)
+            {
+                rate = bps / 1024d;
+                name = "KB/s";
+            }
+            else
+            {
+                rate = bps;
+                name = " B/s";
+            }
+
+            Console.Write("{0,8} {1}", rate.ToString("#,##0.00"), name);
+        }
+
         void RenderProgress(ClientHost host, bool display)
         {
             lock (lineWriter)
@@ -216,28 +240,10 @@ namespace WellDunne.LanCaster.Client
                     string spaces = new string(' ', consoleWidth - 1);
                     Console.Write(spaces);
                     Console.Write(backup);
-                    // Write ACK rate:
-                    {
-                        int bps = (host.ChunksPerMinute * (host.ChunkSize / 60));
-                        string name;
-                        double rate;
-                        if (bps >= 1048576)
-                        {
-                            rate = bps / 1048576d;
-                            name = "MB/s";
-                        }
-                        else if (bps >= 1024)
-                        {
-                            rate = bps / 1024d;
-                            name = "KB/s";
-                        }
-                        else
-                        {
-                            rate = bps;
-                            name = " B/s";
-                        }
-                        Console.Write("{0,8} {1}", rate.ToString("#,##0.00"), name);
-                    }
+                    // Write network receive rate:
+                    WriteRate(host.NetworkRecvChunksPerMinute * (host.ChunkSize / 60));
+                    // Write disk write rate:
+                    WriteRate(host.DiskWriteChunksPerMinute * (host.ChunkSize / 60));
                     Console.WriteLine();
 #endif
                     Console.Write('[');

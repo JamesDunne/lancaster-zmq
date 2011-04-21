@@ -63,7 +63,8 @@ namespace WellDunne.LanCaster
 
         public bool Completed { get; private set; }
 
-        public int ChunksPerMinute { get; private set; }
+        public int NetworkRecvChunksPerMinute { get; private set; }
+        public int DiskWriteChunksPerMinute { get; private set; }
 
         public int NumChunks { get { return this.numChunks; } }
         public int NumBytes { get { return this.numBytes; } }
@@ -242,7 +243,7 @@ namespace WellDunne.LanCaster
 
                     Stopwatch recvTimer = Stopwatch.StartNew();
                     long lastElapsedMilliseconds = recvTimer.ElapsedMilliseconds;
-                    int msgsRecv = 0;
+                    int msgsRecv = 0, msgsWritten = 0;
 
                     try
                     {
@@ -276,6 +277,9 @@ namespace WellDunne.LanCaster
                                 {
                                     if (packet.Count == 0) return DataSUBState.Recv;
                                     int chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
+
+                                    // Count the number of messages received from the network:
+                                    ++msgsRecv;
 
                                     // Already received this chunk?
                                     if (!naks[chunkIdx])
@@ -469,10 +473,10 @@ namespace WellDunne.LanCaster
                             byte[] idxPkt = sock.RecvAll().Dequeue();
 
                             int chunkIdx = BitConverter.ToInt32(idxPkt, 0);
-                            //Console.WriteLine("Disk write {0} complete", chunkIdx);
                             naks[chunkIdx] = false;
 
-                            ++msgsRecv;
+                            // Count the number of messages written to disk:
+                            ++msgsWritten;
                             ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
 
                             // Notify the host that a chunk was written:
@@ -513,9 +517,10 @@ namespace WellDunne.LanCaster
 
                             // Measure our message send rate per minute:
                             long elapsed = recvTimer.ElapsedMilliseconds - lastElapsedMilliseconds;
-                            if (elapsed >= 500L)
+                            if (elapsed >= 250L)
                             {
-                                ChunksPerMinute = (int)((msgsRecv * 60000L) / elapsed);
+                                NetworkRecvChunksPerMinute = (int)((msgsRecv * 60000L) / elapsed);
+                                DiskWriteChunksPerMinute = (int)((msgsWritten * 60000L) / elapsed);
                                 lastElapsedMilliseconds = recvTimer.ElapsedMilliseconds;
                                 msgsRecv = 0;
                             }
