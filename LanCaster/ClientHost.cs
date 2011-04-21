@@ -26,7 +26,7 @@ namespace WellDunne.LanCaster
         private int hwm;
         private TarballStreamReader tarball = null;
         private readonly object tarballLock = new object();
-        private BitArray naks = null;
+        private BitArray diskNAKs = null, networkNAKs = null;
 
         public delegate BitArray GetClientNAKStateDelegate(ClientHost host, TarballStreamReader tarball);
 
@@ -69,7 +69,8 @@ namespace WellDunne.LanCaster
         public int NumChunks { get { return this.numChunks; } }
         public int NumBytes { get { return this.numBytes; } }
         public int ChunkSize { get { return this.chunkSize; } }
-        public BitArray NAKs { get { return this.naks; } }
+        public BitArray DiskNAKs { get { return this.diskNAKs; } }
+        public BitArray NetworkNAKs { get { return this.networkNAKs; } }
 
         private enum DataSUBState
         {
@@ -234,7 +235,7 @@ namespace WellDunne.LanCaster
 
                     // Begin client logic:
 
-                    naks = null;
+                    diskNAKs = networkNAKs = null;
                     numBytes = 0;
                     int ackCount = -1;
                     byte[] nakBuf = null;
@@ -273,7 +274,7 @@ namespace WellDunne.LanCaster
                                 if (packet.Count == 0) return DataSUBState.Recv;
                                 string cmd = Encoding.Unicode.GetString(packet.Dequeue());
 
-                                if ((naks != null) && (cmd == "DATA"))
+                                if ((networkNAKs != null) && (cmd == "DATA"))
                                 {
                                     if (packet.Count == 0) return DataSUBState.Recv;
                                     int chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
@@ -282,13 +283,14 @@ namespace WellDunne.LanCaster
                                     ++msgsRecv;
 
                                     // Already received this chunk?
-                                    if (!naks[chunkIdx])
+                                    if (!networkNAKs[chunkIdx])
                                     {
                                         trace("ALREADY RECV {0}", chunkIdx);
                                         return DataSUBState.Recv;
                                     }
 
                                     trace("RECV {0}", chunkIdx);
+                                    networkNAKs[chunkIdx] = false;
 
                                     // Queue up the disk writes with PUSH/PULL and an HWM on a separate thread to maintain as
                                     // constant disk write throughput as we can get... The HWM will enforce the PUSHer to block
@@ -433,9 +435,9 @@ namespace WellDunne.LanCaster
                                     tarball = new TarballStreamReader(downloadDirectory, tbes);
 
                                     // Get our local download state:
-                                    naks = getClientState(this, tarball);
+                                    networkNAKs = diskNAKs = getClientState(this, tarball);
                                 }
-                                ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
+                                ackCount = diskNAKs.Cast<bool>().Take(numChunks).Count(b => !b);
 
                                 return ControlREQState.SendNAKS;
                             }),
@@ -450,7 +452,7 @@ namespace WellDunne.LanCaster
                                 ctl.SendMore(ctl.Identity);
                                 ctl.SendMore("NAKS", Encoding.Unicode);
                                 // TODO: RLE!
-                                naks.CopyTo(nakBuf, 0);
+                                networkNAKs.CopyTo(nakBuf, 0);
                                 trace("SEND NAK");
                                 ctl.Send(nakBuf);
 
@@ -473,11 +475,14 @@ namespace WellDunne.LanCaster
                             byte[] idxPkt = sock.RecvAll().Dequeue();
 
                             int chunkIdx = BitConverter.ToInt32(idxPkt, 0);
-                            naks[chunkIdx] = false;
+                            diskNAKs[chunkIdx] = false;
+
+                            // Some silly reconciliation policy here:
+                            networkNAKs = diskNAKs;
 
                             // Count the number of messages written to disk:
                             ++msgsWritten;
-                            ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
+                            ackCount = diskNAKs.Cast<bool>().Take(numChunks).Count(b => !b);
 
                             // Notify the host that a chunk was written:
                             if (ChunkWritten != null) ChunkWritten(this, chunkIdx);
