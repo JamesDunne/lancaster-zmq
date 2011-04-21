@@ -444,22 +444,12 @@ namespace WellDunne.LanCaster
                                 let i = (chunkWindowStart + z) % numChunks
                                 let countNAKdClients = clients.Values.Count(cli => !cli.IsTimedOut && cli.HasNAKs && cli.NAK[i])
                                 where countNAKdClients > 0
-#if false
-                                where !chunksSent.Contains(i)
-#endif
                                 orderby countNAKdClients descending
                                 select i
                             ).Take(16).ToList();
 
                             chunkWindowStart = chunkIdxs.LastOrDefault();
                         }
-
-                        //// No chunks to send? Sleep.
-                        //if (chunkIdxs.Count == 0)
-                        //{
-                        //    Thread.Sleep(1);
-                        //    continue;
-                        //}
 
                         foreach (int idx in chunkIdxs)
                         {
