@@ -534,12 +534,16 @@ namespace WellDunne.LanCaster
                             }
                         }
 
+                        PollItem[] recvPoll = new PollItem[1];
+                        recvPoll[0] = ctl.CreatePollItem(IOMultiPlex.POLLIN);
+                        recvPoll[0].PollInHandler += new PollHandler(controlFSM.StateMasheen);
+
                         shuttingDown = true;
                         diskWriterThread.Join();
                         Completed = true;
 
                         // Wait to receive the rest of the messages:
-                        while ((ctx.Poll(pollItems, 100) == 1) && (ctl != null))
+                        while ((ctx.Poll(recvPoll, 100) == 1) && (ctl != null))
                         {
                         }
 
@@ -548,7 +552,7 @@ namespace WellDunne.LanCaster
                         ctl.Send("LEAVE", Encoding.Unicode);
 
                         // Sit around a bit for the response, but we don't really care:
-                        while ((ctx.Poll(pollItems, 100) == 1) && (ctl != null))
+                        while ((ctx.Poll(recvPoll, 100) == 1) && (ctl != null))
                         {
                         }
                     }
