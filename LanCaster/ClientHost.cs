@@ -284,6 +284,7 @@ namespace WellDunne.LanCaster
 
                                     // Count the number of messages received from the network:
                                     ++msgsRecv;
+                                    if (ChunkReceived != null) ChunkReceived(this, chunkIdx);
 
                                     // Already received this chunk?
                                     if (!naks[chunkIdx])
@@ -293,7 +294,6 @@ namespace WellDunne.LanCaster
                                     }
 
                                     trace("RECV {0}", chunkIdx);
-                                    if (ChunkReceived != null) ChunkReceived(this, chunkIdx);
 
                                     // Queue up the disk writes with PUSH/PULL and an HWM on a separate thread to maintain as
                                     // constant disk write throughput as we can get... The HWM will enforce the PUSHer to block
@@ -519,7 +519,7 @@ namespace WellDunne.LanCaster
 
                             // Measure our message send rate per minute:
                             long elapsed = recvTimer.ElapsedMilliseconds - lastElapsedMilliseconds;
-                            if (elapsed >= 250L)
+                            if (elapsed >= 100L)
                             {
                                 NetworkRecvChunksPerMinute = (int)((msgsRecv * 60000L) / elapsed);
                                 DiskWriteChunksPerMinute = (int)((msgsWritten * 60000L) / elapsed);
