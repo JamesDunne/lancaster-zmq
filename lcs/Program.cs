@@ -283,6 +283,30 @@ namespace WellDunne.LanCaster.Server
 
         private readonly object lineWriter = new object();
 
+        void WriteRate(int bps)
+        {
+            string name;
+            double rate;
+
+            if (bps >= 1048576)
+            {
+                rate = bps / 1048576d;
+                name = "MB/s";
+            }
+            else if (bps >= 1024)
+            {
+                rate = bps / 1024d;
+                name = "KB/s";
+            }
+            else
+            {
+                rate = bps;
+                name = " B/s";
+            }
+
+            Console.Write("{0,10} {1}", rate.ToString("#,##0.00"), name);
+        }
+
         void RenderProgress(ServerHost host, bool display)
         {
             lock (lineWriter)
@@ -326,24 +350,7 @@ namespace WellDunne.LanCaster.Server
                     foreach (var cli in clients)
                     {
                         int bps = (cli.ACKsPerMinute * (host.ChunkSize / 60));
-                        string name;
-                        double rate;
-                        if (bps >= 1048576)
-                        {
-                            rate = bps / 1048576d;
-                            name = "MB/s";
-                        }
-                        else if (bps >= 1024)
-                        {
-                            rate = bps / 1024d;
-                            name = "KB/s";
-                        }
-                        else
-                        {
-                            rate = bps;
-                            name = " B/s";
-                        }
-                        Console.Write("{0,8} {1}", rate.ToString("#,##0.00"), name);
+                        WriteRate(bps);
                     }
                     Console.WriteLine();
 #endif

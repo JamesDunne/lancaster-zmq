@@ -132,6 +132,7 @@ namespace WellDunne.LanCaster.Client
 
                 // Create the client:
                 var client = new LanCaster.ClientHost(tsp, endpoint, subscription, downloadDirectory, testMode, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState), hwm);
+                client.ChunkReceived += new Action<ClientHost, int>(ChunkReceived);
                 client.ChunkWritten += new Action<ClientHost, int>(ChunkWritten);
 
                 // Start the client thread and wait for it to complete:
@@ -309,6 +310,11 @@ namespace WellDunne.LanCaster.Client
                     Console.Write(']');
                 }
             }
+        }
+
+        void ChunkReceived(ClientHost host, int chunkIdx)
+        {
+            RenderProgress(host, false);
         }
 
         void ChunkWritten(ClientHost host, int chunkIdx)

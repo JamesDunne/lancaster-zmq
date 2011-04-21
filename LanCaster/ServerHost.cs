@@ -428,10 +428,10 @@ namespace WellDunne.LanCaster
                             continue;
                         }
                         
-                        if ((maxClientACKperMinutes > 0) && (msgsPerMinute > 0) && (msgsPerMinute >= maxClientACKperMinutes))
-                        {
-                            Thread.Sleep(((msgsPerMinute - maxClientACKperMinutes) / 60) * 4);
-                        }
+                        //if ((maxClientACKperMinutes > 0) && (msgsPerMinute > 0) && (msgsPerMinute >= maxClientACKperMinutes))
+                        //{
+                        //    Thread.Sleep(((msgsPerMinute - maxClientACKperMinutes) / 60) * 4);
+                        //}
 
                         haveNewNAKs = false;
                         List<int> chunkIdxs;

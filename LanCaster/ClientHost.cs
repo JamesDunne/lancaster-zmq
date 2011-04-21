@@ -54,6 +54,7 @@ namespace WellDunne.LanCaster
         }
 
         private GetClientNAKStateDelegate getClientState;
+        public event Action<ClientHost, int> ChunkReceived;
         public event Action<ClientHost, int> ChunkWritten;
 
         private void trace(string format, params object[] args)
@@ -151,6 +152,9 @@ namespace WellDunne.LanCaster
                                     }
                                 }
 
+                                // Notify the host that a chunk was written:
+                                if (ChunkWritten != null) ChunkWritten(this, chunkIdx);
+                                
                                 // Send the acknowledgement that this chunk was written to disk:
                                 diskACK.Send(chunkIdxPkt);
                                 break;
@@ -289,6 +293,7 @@ namespace WellDunne.LanCaster
                                     }
 
                                     trace("RECV {0}", chunkIdx);
+                                    if (ChunkReceived != null) ChunkReceived(this, chunkIdx);
 
                                     // Queue up the disk writes with PUSH/PULL and an HWM on a separate thread to maintain as
                                     // constant disk write throughput as we can get... The HWM will enforce the PUSHer to block
@@ -478,9 +483,6 @@ namespace WellDunne.LanCaster
                             // Count the number of messages written to disk:
                             ++msgsWritten;
                             ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
-
-                            // Notify the host that a chunk was written:
-                            if (ChunkWritten != null) ChunkWritten(this, chunkIdx);
 
                             // If we ran up the timer, send more ACKs:
                             if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 100d)
