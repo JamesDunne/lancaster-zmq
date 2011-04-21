@@ -523,6 +523,7 @@ namespace WellDunne.LanCaster
                                 DiskWriteChunksPerMinute = (int)((msgsWritten * 60000L) / elapsed);
                                 lastElapsedMilliseconds = recvTimer.ElapsedMilliseconds;
                                 msgsRecv = 0;
+                                msgsWritten = 0;
                             }
 
                             if (!recvTimer.IsRunning)

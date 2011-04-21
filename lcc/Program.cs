@@ -200,7 +200,7 @@ namespace WellDunne.LanCaster.Client
                 name = " B/s";
             }
 
-            Console.Write("{0,8} {1}", rate.ToString("#,##0.00"), name);
+            Console.Write("{0,10} {1}", rate.ToString("#,##0.00"), name);
         }
 
         void RenderProgress(ClientHost host, bool display)
