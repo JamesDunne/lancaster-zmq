@@ -29,11 +29,7 @@ namespace WellDunne.LanCaster.GUI
 
         #region Client logic
 
-        private bool IsClientRunning
-        {
-            get;
-            set;
-        }
+        private bool IsClientRunning { get; set; }
 
         private ClientHost client;
         private Thread clientThread;
@@ -84,6 +80,11 @@ namespace WellDunne.LanCaster.GUI
             IsClientRunning = true;
         }
 
+        private void btnClientFolder_Click(object sender, RoutedEventArgs e)
+        {
+            //System.Windows.Forms.OpenFileDialog;
+        }
+
         BitArray GetClientNAKState(ClientHost host, TarballStreamReader tarball)
         {
             // TODO: Copy over code from LCC to maintain resumable download state.
@@ -97,10 +98,100 @@ namespace WellDunne.LanCaster.GUI
         /// <param name="chunkIdx"></param>
         void client_ChunkWritten(ClientHost host, int chunkIdx)
         {
-            // BeginInvoke to the UI thread.
+            Dispatcher.BeginInvoke((Action)(() => {
+                BitArray tmp = client.NAKs;
+                this.pbClientProgress.UpdateProgress(tmp, chunkIdx);
+            }), System.Windows.Threading.DispatcherPriority.Background);
         }
 
         #endregion
 
+        #region Server logic
+
+        private bool IsServerRunning { get; set; }
+
+        private ServerHost server;
+        private Thread serverThread;
+        private int serverCurrentIndex;
+
+        private void btnServerStart_Click(object sender, RoutedEventArgs e)
+        {
+            if (IsServerRunning) return;
+
+            server = new ServerHost(ZMQ.Transport.TCP, "*:12198", String.Empty, new TarballStreamWriter(Enumerable.Empty<FileInfo>()), txtServerFolder.Text, 512000, 50, false);
+            server.ClientJoined += new Action<ServerHost, Guid>(server_ClientJoined);
+            server.ClientLeft += new Action<ServerHost, Guid, ServerHost.ClientLeaveReason>(server_ClientLeft);
+            server.ChunkSent += new Action<ServerHost, int>(server_ChunkSent);
+            server.ChunksACKed += new Action<ServerHost>(server_ChunksACKed);
+
+            serverThread = new Thread(new ParameterizedThreadStart(server.Run));
+            serverThread.Start();
+            IsServerRunning = true;
+        }
+
+        void server_ChunksACKed(ServerHost host)
+        {
+            Dispatcher.BeginInvoke((Action)(() =>
+            {
+                UpdateServerProgress(host);
+            }), System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        void server_ChunkSent(ServerHost host, int chunkIdx)
+        {
+            serverCurrentIndex = chunkIdx;
+            Dispatcher.BeginInvoke((Action)(() =>
+            {
+                UpdateServerProgress(host);
+            }), System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        void server_ClientLeft(ServerHost host, Guid clientIdentity, ServerHost.ClientLeaveReason reason)
+        {
+            Dispatcher.BeginInvoke((Action)(() =>
+            {
+                this.lblServerClients.Text = host.Clients.Count.ToString();
+                // TODO: add an event to a log window
+            }), System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        void server_ClientJoined(ServerHost host, Guid clientIdentity)
+        {
+            Dispatcher.BeginInvoke((Action)(() =>
+            {
+                this.lblServerClients.Text = host.Clients.Count.ToString();
+                // TODO: add an event to a log window
+            }), System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        private void btnServerFolder_Click(object sender, RoutedEventArgs e)
+        {
+
+        }
+
+        #endregion
+
+        #region UI Thread logic
+
+        private void UpdateClientProgress()
+        {
+
+        }
+
+        private void UpdateServerProgress(ServerHost host)
+        {
+            // TODO: update the progress bar control to accept a List<int> instead of BitArray and render it as a heat-map.
+            BitArray curr = new BitArray(host.NumBitArrayBytes * 8, false);
+            foreach (var cli in host.Clients)
+            {
+                if (!cli.HasNAKs) continue;
+                if (cli.IsTimedOut) continue;
+                curr = curr.Or(cli.NAK);
+            }
+            // Update the server progress bar:
+            this.pbServerProgress.UpdateProgress(curr, serverCurrentIndex);
+        }
+
+        #endregion
     }
 }

@@ -18,7 +18,7 @@
                         <DockPanel DockPanel.Dock="Top">
                             <DockPanel DockPanel.Dock="Top">
                                 <TextBlock Margin="0,0,10,0">Download to:</TextBlock>
-                                <Button x:Name="btnClientFolder" Margin="10,0,0,0" DockPanel.Dock="Right" Width="25" ToolTip="Select folder">...</Button>
+                                <Button x:Name="btnClientFolder" Margin="10,0,0,0" DockPanel.Dock="Right" Width="25" ToolTip="Select folder" Click="btnClientFolder_Click">...</Button>
                                 <!--TextBox x:Name="txtClientFolder" ToolTip="Local path to download files to"></TextBox -->
                                 <ComboBox x:Name="txtClientFolder" IsEditable="True" StaysOpenOnEdit="True">
                                 </ComboBox>
@@ -116,7 +116,7 @@
                                 <TextBlock Grid.Column="0" Margin="0,0,10,0">Serve path:</TextBlock>
                                 <ComboBox Grid.Column="1" x:Name="txtServerFolder" ToolTip="Local path to serve files from" IsEditable="True" StaysOpenOnEdit="True">
                                 </ComboBox>
-                                <Button Grid.Column="2" x:Name="btnServerFolder" Margin="10,0,0,0" Width="25" ToolTip="Select file/folder">...</Button>
+                                <Button Grid.Column="2" x:Name="btnServerFolder" Margin="10,0,0,0" Width="25" ToolTip="Select file/folder" Click="btnServerFolder_Click">...</Button>
                             </Grid>
                         </DockPanel>
                         <Grid DockPanel.Dock="Top" Margin="0,5,0,0">
@@ -157,7 +157,7 @@
                                     </DockPanel>
                                 </StackPanel>
                                 <Grid Grid.Row="0" Grid.Column="2" Margin="2,2,2,2">
-                                    <Button x:Name="btnServerStart">Start</Button>
+                                    <Button x:Name="btnServerStart" Click="btnServerStart_Click">Start</Button>
                                     <Button x:Name="btnServerAbort" Visibility="Collapsed">Abort</Button>
                                 </Grid>
                             </Grid>

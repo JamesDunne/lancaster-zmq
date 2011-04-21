@@ -7,3 +7,6 @@ LanCaster-Release*.zip
 *.suo
 *.psess
 *.vsp
+*.cache
+*.tmp_proj
+tmp/
