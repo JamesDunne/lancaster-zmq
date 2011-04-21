@@ -41,7 +41,7 @@ namespace WellDunne.LanCaster.Client
                 string endpoint = "*";
                 string subscription = String.Empty;
                 int tmp;
-                int hwm = 32;
+                int hwm = 0;
                 ioThreads = 1;
 
                 Queue<string> argQueue = new Queue<string>(args);
@@ -411,7 +411,7 @@ new[] { @"-d <path>",           @"(REQUIRED) Download files to local directory (
 new[] { @"-s <subscription>",   @"Set subscription name to filter out transfers from other servers on the same endpoint. Default is empty." },
 new[] { @"-t",                  @"Test mode - don't write to filesystem, just act as a dummy client." },
 new[] { @"-n <io threads>",     @"Set this value to the number of threads you wish 0MQ to dedicate to network I/O. Default is 1." },
-new[] { @"-w <hwm>",            @"Set the high-water mater (HWM) which is the maximum number of chunks 0MQ will queue before dropping them. Default is 32." },
+new[] { @"-w <hwm>",            @"Set the high water mark (HWM) which is the maximum number of chunks 0MQ will queue before dropping them. Default is 0 - no high water mark." },
             };
 
             // Displays the error text wrapped to the console's width:

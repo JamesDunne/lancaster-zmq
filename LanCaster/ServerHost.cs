@@ -299,7 +299,7 @@ namespace WellDunne.LanCaster
                 Context ctx = (Context)threadContext;
                 using (Socket data = ctx.Socket(SocketType.PUB))
                 {
-                    data.SNDHWM = hwm;
+                    data.SNDHWM = hwm * 2;
 
                     // Bind the data publisher socket:
 
@@ -320,7 +320,7 @@ namespace WellDunne.LanCaster
                     controlHandlerThread.Start(new object[] { ctx, this });
 
                     // Wait for the sockets to bind:
-                    Thread.Sleep(1000);
+                    Thread.Sleep(500);
 
                     //PollItem[] pollItems = new PollItem[1];
                     //pollItems[0] = data.CreatePollItem(IOMultiPlex.POLLOUT);
@@ -348,11 +348,8 @@ namespace WellDunne.LanCaster
 
                             // Send a PING to all subscribers:
                             trace("PING");
-                            //if (ctx.Poll(pollItems) == 1)
-                            //{
                             data.SendMore(this.subscription, Encoding.Unicode);
                             data.Send("PING", Encoding.Unicode);
-                            //}
                         }
 
                         lock (clientLock)
@@ -388,18 +385,21 @@ namespace WellDunne.LanCaster
                         }
 
                         // Find the ACKs/min rates per client:
+                        int maxClientACKperMinutes;
                         lock (clientLock)
                         {
+                            maxClientACKperMinutes = 0;
                             foreach (var cli in clients.Values)
                             {
                                 if (cli.IsTimedOut)
                                 {
-                                    //Console.WriteLine("{0}: IsTimedOut", cli.Identity.ToString());
+                                    cli.ACKsPerMinute = 0;
+                                    cli.RunningACKCount = 0;
+                                    cli.LastElapsedMilliseconds = sendTimer.ElapsedMilliseconds;
                                     continue;
                                 }
                                 if (!cli.HasNAKs)
                                 {
-                                    //Console.WriteLine("{0}: !HasNAKs", cli.Identity.ToString());
                                     continue;
                                 }
                                 // Measure the ACK rate in ACKs per minute:
@@ -407,11 +407,12 @@ namespace WellDunne.LanCaster
                                 //Console.WriteLine("{0}: {1}", cli.Identity.ToString(), elapsed);
                                 if (elapsed >= 100L)
                                 {
-                                    //Console.WriteLine(cli.RunningACKCount);
                                     cli.ACKsPerMinute = (int)((cli.RunningACKCount * 60000L) / elapsed);
                                     cli.LastElapsedMilliseconds = sendTimer.ElapsedMilliseconds;
                                     cli.RunningACKCount = 0;
                                 }
+
+                                if (cli.ACKsPerMinute > maxClientACKperMinutes) maxClientACKperMinutes = cli.ACKsPerMinute;
                             }
 
                             if (clients.Count == 0)
@@ -421,12 +422,17 @@ namespace WellDunne.LanCaster
                             }
                         }
 
-                        if (!haveNewNAKs)
-                        {
-                            Thread.Sleep(1);
-                            continue;
-                        }
+                        //if (!haveNewNAKs)
+                        //{
+                        //    Thread.Sleep(1);
+                        //    continue;
+                        //}
                         
+                        if ((maxClientACKperMinutes > 0) && (msgsPerMinute > 0) && (msgsPerMinute >= maxClientACKperMinutes))
+                        {
+                            Thread.Sleep(((msgsPerMinute - maxClientACKperMinutes) / 60) * 2);
+                        }
+
                         haveNewNAKs = false;
                         List<int> chunkIdxs;
                         lock (clientLock)
@@ -508,11 +514,9 @@ namespace WellDunne.LanCaster
                             if (ChunkSent != null) ChunkSent(this, chunkIdx.Value);
                             trace("COMPLETE chunk: {0}", chunkIdx.Value);
 
-                            //Thread.Sleep(1);
+                            Thread.Sleep(1);
                             ++msgsSent;
                         }
-
-                        Thread.Sleep(chunkIdxs.Count * 4);
                     }
 
                     // TODO: break out of the while loop somehow
