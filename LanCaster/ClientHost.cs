@@ -23,14 +23,14 @@ namespace WellDunne.LanCaster
         private Transport tsp;
         private uint port;
         private string device;
-        private int hwm;
+        private int networkHWM, diskHWM;
         private TarballStreamReader tarball = null;
         private readonly object tarballLock = new object();
         private BitArray naks = null;
 
         public delegate BitArray GetClientNAKStateDelegate(ClientHost host, TarballStreamReader tarball);
 
-        public ClientHost(Transport tsp, string endpoint, string subscription, DirectoryInfo downloadDirectory, bool testMode, GetClientNAKStateDelegate getClientState, int hwm)
+        public ClientHost(Transport tsp, string endpoint, string subscription, DirectoryInfo downloadDirectory, bool testMode, GetClientNAKStateDelegate getClientState, int networkHWM, int diskHWM)
         {
             this.tsp = tsp;
             this.endpoint = endpoint;
@@ -50,7 +50,8 @@ namespace WellDunne.LanCaster
                 UInt32.TryParse(endpoint.Substring(idx + 1), out port);
             }
 
-            this.hwm = hwm;
+            this.networkHWM = networkHWM;
+            this.diskHWM = diskHWM;
         }
 
         private GetClientNAKStateDelegate getClientState;
@@ -115,12 +116,13 @@ namespace WellDunne.LanCaster
                     diskACK = new Socket(SocketType.PUSH)
                 )
                 {
-                    disk.RCVHWM = hwm;
-                    //disk.RcvBuf = 1048576 * disk.RCVHWM * 4;
+                    disk.RCVHWM = diskHWM;
+                    //disk.RcvBuf = 1048576 * diskHWM * 4;
                     disk.Connect("inproc://disk");
                     diskACK.Connect("inproc://diskack");
 
-                    Thread.Sleep(500);
+                    // 'inproc://' connections are immediate. No need to sleep.
+                    //Thread.Sleep(500);
 
                     bool done = false;
 
@@ -206,8 +208,8 @@ namespace WellDunne.LanCaster
                     diskACK = new Socket(SocketType.PULL);
 
                     // Set the HWM for the disk PUSH so that the PUSH blocks if the PULL can't keep up writing:
-                    disk.SNDHWM = hwm;
-                    //disk.SndBuf = 1048576 * hwm * 4;
+                    disk.SNDHWM = diskHWM;
+                    //disk.SndBuf = 1048576 * diskHWM * 4;
                     disk.Bind("inproc://disk");
 
                     diskACK.Bind("inproc://diskack");
@@ -218,7 +220,7 @@ namespace WellDunne.LanCaster
                     Thread diskWriterThread = new Thread(new ParameterizedThreadStart(DiskWriterThread));
                     diskWriterThread.Start(ctx);
 
-                    data.RCVHWM = hwm;
+                    data.RCVHWM = networkHWM;
 
                     //data.RcvBuf = 1048576 * hwm * 4;
                     // NOTE: work-around for MS bug in WinXP's networking stack. See http://support.microsoft.com/kb/201213 for details.

@@ -41,7 +41,7 @@ namespace WellDunne.LanCaster.Client
                 string endpoint = "*";
                 string subscription = String.Empty;
                 int tmp;
-                int hwm = 0;
+                int networkHWM = 0, diskHWM = 20;
                 ioThreads = 1;
 
                 Queue<string> argQueue = new Queue<string>(args);
@@ -101,10 +101,18 @@ namespace WellDunne.LanCaster.Client
                         case "-w":
                             if (argQueue.Count == 0)
                             {
-                                Console.Error.WriteLine("-w expects a high-water mark argument");
+                                Console.Error.WriteLine("-w expects a high water mark argument");
                                 return;
                             }
-                            Int32.TryParse(argQueue.Dequeue(), out hwm);
+                            Int32.TryParse(argQueue.Dequeue(), out networkHWM);
+                            break;
+                        case "-k":
+                            if (argQueue.Count == 0)
+                            {
+                                Console.Error.WriteLine("-k expects a high water mark argument");
+                                return;
+                            }
+                            Int32.TryParse(argQueue.Dequeue(), out diskHWM);
                             break;
                         case "-?":
                             DisplayUsage();
@@ -131,7 +139,7 @@ namespace WellDunne.LanCaster.Client
                 }
 
                 // Create the client:
-                var client = new LanCaster.ClientHost(tsp, endpoint, subscription, downloadDirectory, testMode, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState), hwm);
+                var client = new LanCaster.ClientHost(tsp, endpoint, subscription, downloadDirectory, testMode, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState), networkHWM, diskHWM);
                 client.ChunkReceived += new Action<ClientHost, int>(ChunkReceived);
                 client.ChunkWritten += new Action<ClientHost, int>(ChunkWritten);
 
@@ -426,7 +434,11 @@ new[] { @"-d <path>",           @"(REQUIRED) Download files to local directory (
 new[] { @"-s <subscription>",   @"Set subscription name to filter out transfers from other servers on the same endpoint. Default is empty." },
 new[] { @"-t",                  @"Test mode - don't write to filesystem, just act as a dummy client." },
 new[] { @"-n <io threads>",     @"Set this value to the number of threads you wish 0MQ to dedicate to network I/O. Default is 1." },
-new[] { @"-w <hwm>",            @"Set the high water mark (HWM) which is the maximum number of chunks 0MQ will queue before dropping them. Default is 0 - no high water mark." },
+new[] { @"-w <hwm>",            @"Set the network high water mark (HWM) which is the maximum number of chunks 0MQ will queue from the network before dropping them. Default is 0 - no high water mark." },
+new[] { @"-k <hwm>",            @"Set the disk high water mark (HWM) which is the maximum number of chunks 0MQ will queue up to write to disk before dropping them. Default is 20; 0 means no high water mark." },
+new[] { @"" },
+new[] { @"NOTE ABOUT HWMs (high water mark values):" },
+new[] { @"Be careful to not have network and disk HWMs BOTH set to zero because this will exhaust your memory until the program dies." },
             };
 
             // Displays the error text wrapped to the console's width:
