@@ -1,2 +1,2 @@
 #!/bin/sh
-/cygdrive/c/Windows/Microsoft.NET/Framework/v3.5/msbuild.exe /p:Configuration=Release
+/cygdrive/c/Windows/Microsoft.NET/Framework/v3.5/msbuild.exe LanCaster-Console.sln /p:Configuration=Release /m:4
