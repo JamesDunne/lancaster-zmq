@@ -139,7 +139,14 @@ namespace WellDunne.LanCaster
                 {
                     // Bind the control reply socket:
                     ctl.SndBuf = 1048576 * 20;
-                    ctl.Bind(Transport.TCP, host.device, (host.port + 1));
+                    if (host.tsp == Transport.TCP)
+                    {
+                        ctl.Bind(Transport.TCP, host.device, (host.port + 1));
+                    }
+                    else
+                    {
+                        ctl.Bind(Transport.TCP, "*", (host.port + 1));
+                    }
 
                     // Wait for the sockets to bind:
                     Thread.Sleep(500);
@@ -303,15 +310,19 @@ namespace WellDunne.LanCaster
 
                     // Bind the data publisher socket:
 
-                    // TODO: use epgm:// protocol for multicast efficiency when we build that support into libzmq.dll for Windows.
-                    //data.Rate = 20000L;
+                    if (tsp == Transport.EPGM)
+                    {
+                        data.Rate = 20000;
+                    }
 
                     //data.SndBuf = chunkSize * hwm * 4;
                     // NOTE: work-around for MS bug in WinXP's networking stack. See http://support.microsoft.com/kb/201213 for details.
                     data.SndBuf = 0;
                     
                     data.StringToIdentity(subscription, Encoding.Unicode);
-                    data.Bind(tsp.ToString().ToLower() + "://" + device + ":" + port);
+                    string address = tsp.ToString().ToLower() + "://" + device + ":" + port;
+                    Console.WriteLine("Bind(\"{0}\")", address);
+                    data.Bind(address);
 
                     isRunning = true;
 

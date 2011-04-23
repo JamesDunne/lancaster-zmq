@@ -455,6 +455,7 @@ namespace WellDunne.LanCaster.Server
 new[] { @"" },
 new[] { @"-s <identity>",       @"(REQUIRED) Set identity name; helps clients reconnect if the server dies or is aborted and restarted." },
 new[] { @"-d <path>",           @"(REQUIRED) Add files from directory to upload. Can specify multiple -d options." },
+new[] { @"-a <transport>",      @"Use TCP or EPGM (multicast over UDP) transport for data. Default is TCP." },
 new[] { @"-e <endpoint>",       @"Listen for clients on the given 0MQ endpoint. '*' is all network interfaces, or provide a specific network interface's primary IPv4 address. Add a ':' and port number to specify a custom port number, default port is 12198. Default value is '*'." },
 new[] { @"-b <path>",           @"Set base path of upload (all directories must be beneath this folder)" },
 new[] { @"-i <path>",           @"Read the file at <path> for a listing of filenames, paths, and extensions (e.g. '*.txt') to ignore (applies to next -d options)" },
@@ -463,7 +464,6 @@ new[] { @"-R",                  @"Set nonrecursive mode (applies to following -d
 new[] { @"-c <chunk size>",     @"Set the chunk size in bytes to use for dividing up the files into chunks. Larger values are better for faster networks. Recommend keeping it under 8388608 (8 MB). Default is 1048576 (1 MB)" },
 new[] { @"-n <io threads>",     @"Set this value to the number of threads you wish 0MQ to dedicate to network I/O. Default is 1." },
 new[] { @"-w <hwm>",            @"Set the high-water mater (HWM) which is the maximum number of chunks 0MQ will queue before dropping them. Default is 32." },
-new[] { @"-a <transport>",      @"Use TCP or EPGM (multicast over UDP) transport for data. Default is TCP." },
 new[] { @"-t",                  @"Set test mode where we do not read from disk and send zeroed-out chunks." },
             };
 

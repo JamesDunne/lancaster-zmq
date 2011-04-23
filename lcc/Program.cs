@@ -38,7 +38,7 @@ namespace WellDunne.LanCaster.Client
             try
             {
                 Transport tsp = Transport.TCP;
-                string endpoint = "*";
+                string endpointData = null, endpointCtl = null;
                 string subscription = String.Empty;
                 int tmp;
                 int networkHWM = 0, diskHWM = 20;
@@ -57,15 +57,38 @@ namespace WellDunne.LanCaster.Client
                                 Console.Error.WriteLine("-a expects a transport name argument");
                                 return;
                             }
+                            if (endpointData != null)
+                            {
+                                Console.Error.WriteLine("-a must appear before -e in order");
+                                return;
+                            }
                             tsp = (Transport)Enum.Parse(typeof(Transport), argQueue.Dequeue(), true);
                             break;
                         case "-e":
-                            if (argQueue.Count == 0)
+                            if (tsp == Transport.TCP)
                             {
-                                Console.Error.WriteLine("-e expects an endpoint argument");
+                                if (argQueue.Count == 0)
+                                {
+                                    Console.Error.WriteLine("-e expects an endpoint argument");
+                                    return;
+                                }
+                                endpointCtl = endpointData = argQueue.Dequeue();
+                            }
+                            else if (tsp == Transport.EPGM)
+                            {
+                                if (argQueue.Count <= 1)
+                                {
+                                    Console.Error.WriteLine("-e expects two endpoint arguments");
+                                    return;
+                                }
+                                endpointData = argQueue.Dequeue();
+                                endpointCtl = argQueue.Dequeue();
+                            }
+                            else
+                            {
+                                Console.Error.WriteLine("Unsupported protocol {0}", tsp.ToString());
                                 return;
                             }
-                            endpoint = argQueue.Dequeue();
                             break;
                         case "-d":
                             if (argQueue.Count == 0)
@@ -122,7 +145,7 @@ namespace WellDunne.LanCaster.Client
                     }
                 }
 
-                if ((endpoint == null) || (downloadDirectory == null))
+                if ((endpointData == null) || (downloadDirectory == null))
                 {
                     DisplayUsage();
                     return;
@@ -139,7 +162,7 @@ namespace WellDunne.LanCaster.Client
                 }
 
                 // Create the client:
-                var client = new LanCaster.ClientHost(tsp, endpoint, subscription, downloadDirectory, testMode, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState), networkHWM, diskHWM);
+                var client = new LanCaster.ClientHost(tsp, endpointData, endpointCtl, subscription, downloadDirectory, testMode, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState), networkHWM, diskHWM);
                 client.ChunkReceived += new Action<ClientHost, int>(ChunkReceived);
                 client.ChunkWritten += new Action<ClientHost, int>(ChunkWritten);
 
@@ -429,7 +452,8 @@ namespace WellDunne.LanCaster.Client
 
             string[][] prms = new string[][] {
 new[] { @"" },
-new[] { @"-e <endpoint>",       @"(REQUIRED) Connect to a server at the given address. Optionally add a ':' and port number to specify a custom port number, default port is 12198." },
+new[] { @"-a <transport>",      @"Use TCP or EPGM (multicast over UDP) transport for data. Default is TCP. Must occur before -e option." },
+new[] { @"-e <data endpoint> [control endpoint]",       @"(REQUIRED) Connect to a server at the given address. Optionally add a ':' and port number to specify a custom port number, default port is 12198. The control endpoint is only required for EPGM protocol." },
 new[] { @"-d <path>",           @"(REQUIRED) Download files to local directory (will be created if it doesn't exist)." },
 new[] { @"-s <subscription>",   @"Set subscription name to filter out transfers from other servers on the same endpoint. Default is empty." },
 new[] { @"-t",                  @"Test mode - don't write to filesystem, just act as a dummy client." },

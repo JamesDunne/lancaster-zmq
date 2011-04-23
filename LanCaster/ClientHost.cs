@@ -16,13 +16,12 @@ namespace WellDunne.LanCaster
         private DirectoryInfo downloadDirectory;
         private int numChunks, numBytes;
         private string subscription;
-        private string endpoint;
         private BooleanSwitch doLogging;
         private int chunkSize;
         private bool testMode;
         private Transport tsp;
-        private uint port;
-        private string device;
+        private uint portData, portCtl;
+        private string deviceData, deviceCtl;
         private int networkHWM, diskHWM;
         private TarballStreamReader tarball = null;
         private readonly object tarballLock = new object();
@@ -30,10 +29,9 @@ namespace WellDunne.LanCaster
 
         public delegate BitArray GetClientNAKStateDelegate(ClientHost host, TarballStreamReader tarball);
 
-        public ClientHost(Transport tsp, string endpoint, string subscription, DirectoryInfo downloadDirectory, bool testMode, GetClientNAKStateDelegate getClientState, int networkHWM, int diskHWM)
+        public ClientHost(Transport tsp, string endpointData, string endpointCtl, string subscription, DirectoryInfo downloadDirectory, bool testMode, GetClientNAKStateDelegate getClientState, int networkHWM, int diskHWM)
         {
             this.tsp = tsp;
-            this.endpoint = endpoint;
             this.subscription = subscription;
             this.downloadDirectory = downloadDirectory;
             this.testMode = testMode;
@@ -41,13 +39,23 @@ namespace WellDunne.LanCaster
             this.Completed = false;
             this.doLogging = new BooleanSwitch("doLogging", "Log client events", "0");
 
-            this.port = 12198;
-            this.device = endpoint;
-            int idx = endpoint.LastIndexOf(':');
+            this.portData = 12198;
+            this.deviceData = endpointData;
+            int idx = endpointData.LastIndexOf(':');
             if (idx >= 0)
             {
-                device = endpoint.Substring(0, idx);
-                UInt32.TryParse(endpoint.Substring(idx + 1), out port);
+                this.deviceData = endpointData.Substring(0, idx);
+                UInt32.TryParse(endpointData.Substring(idx + 1), out portData);
+            }
+
+            this.portCtl = portData + 1;
+            this.deviceCtl = endpointCtl;
+            idx = endpointCtl.LastIndexOf(':');
+            if (idx >= 0)
+            {
+                this.deviceCtl = endpointCtl.Substring(0, idx);
+                UInt32.TryParse(endpointCtl.Substring(idx + 1), out portCtl);
+                if (portCtl == portData) portCtl = portData + 1;
             }
 
             this.networkHWM = networkHWM;
@@ -102,90 +110,6 @@ namespace WellDunne.LanCaster
             }
         }
 
-        private static readonly byte[] cmdWrite = new byte[1] { (byte)'W' };
-        private static readonly byte[] cmdExit = new byte[1] { (byte)'X' };
-
-        private void DiskWriterThread(object threadContext)
-        {
-            try
-            {
-                Context ctx = (Context)threadContext;
-
-                using (Socket
-                    disk = new Socket(SocketType.PULL),
-                    diskACK = new Socket(SocketType.PUSH)
-                )
-                {
-                    disk.RCVHWM = diskHWM;
-                    //disk.RcvBuf = 1048576 * diskHWM * 4;
-                    disk.Connect("inproc://disk");
-                    diskACK.Connect("inproc://diskack");
-
-                    // 'inproc://' connections are immediate. No need to sleep.
-                    //Thread.Sleep(500);
-
-                    bool done = false;
-
-                    PollItem[] pollItems = new PollItem[1];
-                    pollItems[0] = disk.CreatePollItem(IOMultiPlex.POLLIN);
-                    pollItems[0].PollInHandler += new PollHandler((Socket sock, IOMultiPlex revents) =>
-                    {
-                        Queue<byte[]> packet = sock.RecvAll();
-
-                        // Determine the action to take:
-                        byte[] cmd = packet.Dequeue();
-
-                        int chunkIdx;
-                        byte[] chunkIdxPkt;
-                        byte[] chunk;
-
-                        switch (cmd[0])
-                        {
-                            // Write to disk
-                            case (byte)'W':
-                                chunkIdx = BitConverter.ToInt32(chunkIdxPkt = packet.Dequeue(), 0);
-                                chunk = packet.Dequeue();
-                                if (!testMode)
-                                {
-                                    lock (tarballLock)
-                                    {
-                                        tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
-                                        tarball.Write(chunk, 0, chunk.Length);
-                                    }
-                                }
-
-                                // Notify the host that a chunk was written:
-                                if (ChunkWritten != null) ChunkWritten(this, chunkIdx);
-                                
-                                // Send the acknowledgement that this chunk was written to disk:
-                                diskACK.Send(chunkIdxPkt);
-                                break;
-
-                            // Exit thread
-                            case (byte)'X':
-                                done = true;
-                                break;
-
-                            default:
-                                break;
-                        }
-                    });
-
-                    while (!done)
-                    {
-                        if (ctx.Poll(pollItems, 10000L) == 0)
-                        {
-                            Thread.Sleep(1);
-                        }
-                    }
-                }
-            }
-            catch (System.Exception ex)
-            {
-                Console.Error.WriteLine(ex.ToString());
-            }
-        }
-
         /// <summary>
         /// Main thread to host the client process.
         /// </summary>
@@ -210,11 +134,10 @@ namespace WellDunne.LanCaster
                     // Set the HWM for the disk PUSH so that the PUSH blocks if the PULL can't keep up writing:
                     disk.SNDHWM = diskHWM;
                     //disk.SndBuf = 1048576 * diskHWM * 4;
+
+                    // inproc:// binds are immediate.
                     disk.Bind("inproc://disk");
-
                     diskACK.Bind("inproc://diskack");
-
-                    //Thread.Sleep(500);
 
                     // Create the disk PULL thread:
                     Thread diskWriterThread = new Thread(new ParameterizedThreadStart(DiskWriterThread));
@@ -226,12 +149,22 @@ namespace WellDunne.LanCaster
                     // NOTE: work-around for MS bug in WinXP's networking stack. See http://support.microsoft.com/kb/201213 for details.
                     data.RcvBuf = 0;
 
-                    data.Connect(tsp.ToString().ToLower() + "://" + device + ":" + port);
+                    if (tsp == Transport.EPGM)
+                    {
+                        data.Rate = 20000;
+                    }
+
+                    string address = tsp.ToString().ToLower() + "://" + deviceData + ":" + portData;
+                    Console.WriteLine("Connect(\"{0}\")", address);
+                    data.Connect(address);
                     data.Subscribe(subscription, Encoding.Unicode);
 
                     // Connect to the control request socket:
                     ctl.RcvBuf = 1048576 * 4;
-                    ctl.Connect("tcp://" + device + ":" + (port + 1).ToString());
+                    ctl.SndBuf = 1048576 * 4;
+                    address = "tcp://" + deviceCtl + ":" + portCtl.ToString();
+                    Console.WriteLine("Connect(\"{0}\")", address);
+                    ctl.Connect(address);
 
                     Guid myIdentity = Guid.NewGuid();
                     ctl.Identity = new byte[1] { (byte)'@' }.Concat(myIdentity.ToByteArray()).ToArray();
@@ -510,7 +443,7 @@ namespace WellDunne.LanCaster
                                 // Set up new socket:
                                 ctl = ctx.Socket(SocketType.REQ);
                                 // Connect to the control request socket:
-                                ctl.Connect("tcp://" + device + ":" + (port + 1).ToString());
+                                ctl.Connect("tcp://" + deviceCtl + ":" + portCtl.ToString());
                                 ctl.Identity = new byte[1] { (byte)'@' }.Concat(myIdentity.ToByteArray()).ToArray();
                             }
 
@@ -575,6 +508,90 @@ namespace WellDunne.LanCaster
                 {
                     if (data != null) data.Dispose();
                     if (ctl != null) ctl.Dispose();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Console.Error.WriteLine(ex.ToString());
+            }
+        }
+
+        private static readonly byte[] cmdWrite = new byte[1] { (byte)'W' };
+        private static readonly byte[] cmdExit = new byte[1] { (byte)'X' };
+
+        private void DiskWriterThread(object threadContext)
+        {
+            try
+            {
+                Context ctx = (Context)threadContext;
+
+                using (Socket
+                    disk = new Socket(SocketType.PULL),
+                    diskACK = new Socket(SocketType.PUSH)
+                )
+                {
+                    disk.RCVHWM = diskHWM;
+                    //disk.RcvBuf = 1048576 * diskHWM * 4;
+                    disk.Connect("inproc://disk");
+                    diskACK.Connect("inproc://diskack");
+
+                    // 'inproc://' connections are immediate. No need to sleep.
+                    //Thread.Sleep(500);
+
+                    bool done = false;
+
+                    PollItem[] pollItems = new PollItem[1];
+                    pollItems[0] = disk.CreatePollItem(IOMultiPlex.POLLIN);
+                    pollItems[0].PollInHandler += new PollHandler((Socket sock, IOMultiPlex revents) =>
+                    {
+                        Queue<byte[]> packet = sock.RecvAll();
+
+                        // Determine the action to take:
+                        byte[] cmd = packet.Dequeue();
+
+                        int chunkIdx;
+                        byte[] chunkIdxPkt;
+                        byte[] chunk;
+
+                        switch (cmd[0])
+                        {
+                            // Write to disk
+                            case (byte)'W':
+                                chunkIdx = BitConverter.ToInt32(chunkIdxPkt = packet.Dequeue(), 0);
+                                chunk = packet.Dequeue();
+                                if (!testMode)
+                                {
+                                    lock (tarballLock)
+                                    {
+                                        tarball.Seek((long)chunkIdx * chunkSize, SeekOrigin.Begin);
+                                        tarball.Write(chunk, 0, chunk.Length);
+                                    }
+                                }
+
+                                // Notify the host that a chunk was written:
+                                if (ChunkWritten != null) ChunkWritten(this, chunkIdx);
+
+                                // Send the acknowledgement that this chunk was written to disk:
+                                diskACK.Send(chunkIdxPkt);
+                                break;
+
+                            // Exit thread
+                            case (byte)'X':
+                                done = true;
+                                break;
+
+                            default:
+                                break;
+                        }
+                    });
+
+                    while (!done)
+                    {
+                        if (ctx.Poll(pollItems, 10000L) == 0)
+                        {
+                            Thread.Sleep(1);
+                        }
+                    }
                 }
             }
             catch (System.Exception ex)
