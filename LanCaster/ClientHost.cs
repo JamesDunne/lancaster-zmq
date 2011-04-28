@@ -149,9 +149,9 @@ namespace WellDunne.LanCaster
                     // NOTE: work-around for MS bug in WinXP's networking stack. See http://support.microsoft.com/kb/201213 for details.
                     data.RcvBuf = 0;
 
-                    if (tsp == Transport.EPGM)
+                    if (tsp == Transport.EPGM || tsp == Transport.PGM)
                     {
-                        data.Rate = 20000;
+                        data.Rate = 100000;
                     }
 
                     string address = tsp.ToString().ToLower() + "://" + deviceData + ":" + portData;
