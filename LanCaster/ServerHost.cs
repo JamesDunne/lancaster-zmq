@@ -310,9 +310,9 @@ namespace WellDunne.LanCaster
 
                     // Bind the data publisher socket:
 
-                    if (tsp == Transport.EPGM)
+                    if (tsp == Transport.EPGM || tsp == Transport.PGM)
                     {
-                        data.Rate = 20000;
+                        data.Rate = 100000;
                     }
 
                     //data.SndBuf = chunkSize * hwm * 4;
