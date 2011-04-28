@@ -27,7 +27,7 @@ namespace WellDunne.LanCaster
         private uint port;
         private string device;
 
-        public ServerHost(Transport tsp, string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize, int hwm, bool testMode)
+        public ServerHost(Transport tsp, string endpoint, string subscription, TarballStreamWriter tarball, string basePath, int chunkSize, int hwm, int pgmRate, bool testMode)
         {
             if (String.IsNullOrEmpty(endpoint)) throw new ArgumentNullException("endpoint");
             if (String.IsNullOrEmpty(subscription)) throw new ArgumentNullException("subscription");
@@ -40,6 +40,7 @@ namespace WellDunne.LanCaster
             this.tarball = tarball;
             this.basePath = basePath;
             this.chunkSize = chunkSize;
+            this.pgmRate = pgmRate;
             this.testMode = testMode;
 
             this.lastChunkSize = (int)(tarball.Length % chunkSize);
@@ -110,6 +111,7 @@ namespace WellDunne.LanCaster
         private int hwm;
         private bool isRunning;
         private bool haveNewNAKs = false;
+        private int pgmRate;
 
         private static void WriteBuffer(Stream st, byte[] buf)
         {
@@ -312,7 +314,7 @@ namespace WellDunne.LanCaster
 
                     if (tsp == Transport.EPGM || tsp == Transport.PGM)
                     {
-                        data.Rate = 100000;
+                        data.Rate = pgmRate;
                     }
 
                     //data.SndBuf = chunkSize * hwm * 4;

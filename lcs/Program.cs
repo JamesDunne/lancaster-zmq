@@ -46,6 +46,7 @@ namespace WellDunne.LanCaster.Server
             int chunkSize = 1024 * 1000;
             int ioThreads = 1;
             int hwm = 32;
+            int pgmRate = 819200;
 
             Queue<string> argQueue = new Queue<string>(args);
             while (argQueue.Count > 0)
@@ -69,6 +70,15 @@ namespace WellDunne.LanCaster.Server
                             return;
                         }
                         endpoint = argQueue.Dequeue();
+                        break;
+                    case "-r":
+                        if (argQueue.Count == 0)
+                        {
+                            Console.Error.WriteLine("-r expects a rate limit in kilobits per second argument");
+                            return;
+                        }
+
+                        Int32.TryParse(argQueue.Dequeue(), out pgmRate);
                         break;
                     case "-d":
                         if (argQueue.Count == 0)
@@ -154,10 +164,10 @@ namespace WellDunne.LanCaster.Server
                             StringComparer.OrdinalIgnoreCase
                         );
                         break;
-                    case "-r":
+                    case "-m":
                         recurseMode = true;
                         break;
-                    case "-R":
+                    case "-M":
                         recurseMode = false;
                         break;
                     case "-s":
@@ -233,7 +243,7 @@ namespace WellDunne.LanCaster.Server
 
             using (var serverTarball = new TarballStreamWriter(files))
             {
-                var server = new LanCaster.ServerHost(tsp, endpoint, subscription, serverTarball, basePath, chunkSize, hwm, testMode);
+                var server = new LanCaster.ServerHost(tsp, endpoint, subscription, serverTarball, basePath, chunkSize, hwm, pgmRate, testMode);
 
                 Console.WriteLine();
                 Console.WriteLine("{0,15} chunks @ {1,13} bytes/chunk", server.NumChunks.ToString("##,#"), server.ChunkSize.ToString("##,#"));
@@ -459,11 +469,12 @@ new[] { @"-a <transport>",      @"Use TCP or EPGM (multicast over UDP) transport
 new[] { @"-e <endpoint>",       @"Listen for clients on the given 0MQ endpoint. '*' is all network interfaces, or provide a specific network interface's primary IPv4 address. Add a ':' and port number to specify a custom port number, default port is 12198. Default value is '*'." },
 new[] { @"-b <path>",           @"Set base path of upload (all directories must be beneath this folder)" },
 new[] { @"-i <path>",           @"Read the file at <path> for a listing of filenames, paths, and extensions (e.g. '*.txt') to ignore (applies to next -d options)" },
-new[] { @"-r",                  @"Set recursive mode (applies to following -d options). Default mode." },
-new[] { @"-R",                  @"Set nonrecursive mode (applies to following -d options)." },
+new[] { @"-m",                  @"Set recursive mode (applies to following -d options). Default mode." },
+new[] { @"-M",                  @"Set nonrecursive mode (applies to following -d options)." },
 new[] { @"-c <chunk size>",     @"Set the chunk size in bytes to use for dividing up the files into chunks. Larger values are better for faster networks. Recommend keeping it under 8388608 (8 MB). Default is 1048576 (1 MB)" },
 new[] { @"-n <io threads>",     @"Set this value to the number of threads you wish 0MQ to dedicate to network I/O. Default is 1." },
 new[] { @"-w <hwm>",            @"Set the high-water mater (HWM) which is the maximum number of chunks 0MQ will queue before dropping them. Default is 32." },
+new[] { @"-r <rate>",           @"Set the PGM rate limit which is the kilobits per second rate at which data will be multicast. Only applicable if -a is set to PGM or EPGM. Default is 819200 (100 MB/sec)." },
 new[] { @"-t",                  @"Set test mode where we do not read from disk and send zeroed-out chunks." },
             };
 

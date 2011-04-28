@@ -42,6 +42,7 @@ namespace WellDunne.LanCaster.Client
                 string subscription = String.Empty;
                 int tmp;
                 int networkHWM = 0, diskHWM = 20;
+                int pgmRate = 819200;
                 ioThreads = 1;
 
                 Queue<string> argQueue = new Queue<string>(args);
@@ -89,6 +90,15 @@ namespace WellDunne.LanCaster.Client
                                 Console.Error.WriteLine("Unsupported protocol {0}", tsp.ToString());
                                 return;
                             }
+                            break;
+                        case "-r":
+                            if (argQueue.Count == 0)
+                            {
+                                Console.Error.WriteLine("-r expects a rate limit in kilobits per second argument");
+                                return;
+                            }
+
+                            Int32.TryParse(argQueue.Dequeue(), out pgmRate);
                             break;
                         case "-d":
                             if (argQueue.Count == 0)
@@ -162,7 +172,7 @@ namespace WellDunne.LanCaster.Client
                 }
 
                 // Create the client:
-                var client = new LanCaster.ClientHost(tsp, endpointData, endpointCtl, subscription, downloadDirectory, testMode, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState), networkHWM, diskHWM);
+                var client = new LanCaster.ClientHost(tsp, endpointData, endpointCtl, subscription, downloadDirectory, testMode, new ClientHost.GetClientNAKStateDelegate(GetClientNAKState), networkHWM, diskHWM, pgmRate);
                 client.ChunkReceived += new Action<ClientHost, int>(ChunkReceived);
                 client.ChunkWritten += new Action<ClientHost, int>(ChunkWritten);
 
@@ -460,6 +470,7 @@ new[] { @"-t",                  @"Test mode - don't write to filesystem, just ac
 new[] { @"-n <io threads>",     @"Set this value to the number of threads you wish 0MQ to dedicate to network I/O. Default is 1." },
 new[] { @"-w <hwm>",            @"Set the network high water mark (HWM) which is the maximum number of chunks 0MQ will queue from the network before dropping them. Default is 0 - no high water mark." },
 new[] { @"-k <hwm>",            @"Set the disk high water mark (HWM) which is the maximum number of chunks 0MQ will queue up to write to disk before dropping them. Default is 20; 0 means no high water mark." },
+new[] { @"-r <rate>",           @"Set the PGM rate limit which is the kilobits per second rate at which data will be multicast. Only applicable if -a is set to PGM or EPGM. Default is 819200 (100 MB/sec)." },
 new[] { @"" },
 new[] { @"NOTE ABOUT HWMs (high water mark values):" },
 new[] { @"Be careful to not have network and disk HWMs BOTH set to zero because this will exhaust your memory until the program dies." },
