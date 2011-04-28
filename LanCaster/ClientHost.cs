@@ -29,13 +29,15 @@ namespace WellDunne.LanCaster
 
         public delegate BitArray GetClientNAKStateDelegate(ClientHost host, TarballStreamReader tarball);
 
-        public ClientHost(Transport tsp, string endpointData, string endpointCtl, string subscription, DirectoryInfo downloadDirectory, bool testMode, GetClientNAKStateDelegate getClientState, int networkHWM, int diskHWM)
+        public ClientHost(Transport tsp, string endpointData, string endpointCtl, string subscription, DirectoryInfo downloadDirectory, bool testMode, GetClientNAKStateDelegate getClientState, int networkHWM, int diskHWM, int pgmRate)
         {
             this.tsp = tsp;
             this.subscription = subscription;
             this.downloadDirectory = downloadDirectory;
             this.testMode = testMode;
             this.getClientState = getClientState;
+            this.pgmRate = pgmRate;
+
             this.Completed = false;
             this.doLogging = new BooleanSwitch("doLogging", "Log client events", "0");
 
@@ -151,7 +153,7 @@ namespace WellDunne.LanCaster
 
                     if (tsp == Transport.EPGM || tsp == Transport.PGM)
                     {
-                        data.Rate = 100000;
+                        data.Rate = pgmRate;
                     }
 
                     string address = tsp.ToString().ToLower() + "://" + deviceData + ":" + portData;
@@ -518,6 +520,7 @@ namespace WellDunne.LanCaster
 
         private static readonly byte[] cmdWrite = new byte[1] { (byte)'W' };
         private static readonly byte[] cmdExit = new byte[1] { (byte)'X' };
+        private int pgmRate;
 
         private void DiskWriterThread(object threadContext)
         {
