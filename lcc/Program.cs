@@ -74,7 +74,7 @@ namespace WellDunne.LanCaster.Client
                                 }
                                 endpointCtl = endpointData = argQueue.Dequeue();
                             }
-                            else if (tsp == Transport.EPGM)
+                            else if (tsp == Transport.EPGM || tsp == Transport.PGM)
                             {
                                 if (argQueue.Count <= 1)
                                 {
