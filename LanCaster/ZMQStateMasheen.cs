@@ -30,30 +30,26 @@ namespace WellDunne.LanCaster
                 NextState = nextState;
                 Immediately = immediately;
             }
+
+            public static implicit operator MoveOperation(Tstate nextState)
+            {
+                return new MoveOperation(nextState, false);
+            }
         }
 
         private Tstate currentState;
-        private Func<Socket, IOMultiPlex, MoveOperation> currentHandler;
         private Dictionary<Tstate, State> states;
 
         internal Tstate CurrentState
         {
             get { return currentState; }
-            set
-            {
-                if (!currentState.Equals(value))
-                {
-                    currentState = value;
-                    currentHandler = states[currentState].Handler;
-                }
-            }
+            set { currentState = value; }
         }
 
         public ZMQStateMasheen(Tstate initial, params State[] states)
         {
             this.states = states.ToDictionary(st => st.MatchState);
             this.currentState = initial;
-            this.currentHandler = this.states[initial].Handler;
         }
 
         public void StateMasheen(Socket socket, IOMultiPlex revents)
@@ -64,8 +60,8 @@ namespace WellDunne.LanCaster
             MoveOperation op;
             do
             {
-                op = currentHandler(socket, revents);
-                CurrentState = op.NextState;
+                op = this.states[currentState].Handler(socket, revents);
+                currentState = op.NextState;
             } while (op.Immediately);
         }
     }
