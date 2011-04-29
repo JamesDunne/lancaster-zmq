@@ -41,8 +41,8 @@ namespace WellDunne.LanCaster.Client
                 string endpointData = null, endpointCtl = null;
                 string subscription = String.Empty;
                 int tmp;
-                int networkHWM = 0, diskHWM = 20;
-                int pgmRate = 819200;
+                int networkHWM = 0, diskHWM = 0;
+                int pgmRate = 800000;
                 ioThreads = 1;
 
                 Queue<string> argQueue = new Queue<string>(args);
@@ -469,8 +469,8 @@ new[] { @"-s <subscription>",   @"Set subscription name to filter out transfers 
 new[] { @"-t",                  @"Test mode - don't write to filesystem, just act as a dummy client." },
 new[] { @"-n <io threads>",     @"Set this value to the number of threads you wish 0MQ to dedicate to network I/O. Default is 1." },
 new[] { @"-w <hwm>",            @"Set the network high water mark (HWM) which is the maximum number of chunks 0MQ will queue from the network before dropping them. Default is 0 - no high water mark." },
-new[] { @"-k <hwm>",            @"Set the disk high water mark (HWM) which is the maximum number of chunks 0MQ will queue up to write to disk before dropping them. Default is 20; 0 means no high water mark." },
-new[] { @"-r <rate>",           @"Set the PGM rate limit which is the kilobits per second rate at which data will be multicast. Only applicable if -a is set to PGM or EPGM. Default is 819200 (100 MB/sec)." },
+new[] { @"-k <hwm>",            @"Set the disk high water mark (HWM) which is the maximum number of chunks 0MQ will queue up to write to disk before dropping them. Default is 0 - no high water mark." },
+new[] { @"-r <rate>",           @"Set the PGM rate limit which is the kilobits per second rate at which data will be multicast. Only applicable if -a is set to PGM or EPGM. Default is 800000 (100 MB/sec)." },
 new[] { @"" },
 new[] { @"NOTE ABOUT HWMs (high water mark values):" },
 new[] { @"Be careful to not have network and disk HWMs BOTH set to zero because this will exhaust your memory until the program dies." },

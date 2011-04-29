@@ -191,7 +191,7 @@ namespace WellDunne.LanCaster
                         // Poll for incoming messages on the data SUB socket:
                         PollItem[] pollItems = new PollItem[3];
                         pollItems[0] = data.CreatePollItem(IOMultiPlex.POLLIN);
-                        pollItems[1] = ctl.CreatePollItem(IOMultiPlex.POLLIN | IOMultiPlex.POLLOUT);
+                        pollItems[1] = ctl.CreatePollItem(IOMultiPlex.POLLIN /* | IOMultiPlex.POLLOUT */);
                         pollItems[2] = diskACK.CreatePollItem(IOMultiPlex.POLLIN);
 
                         ZMQStateMasheen<DataSUBState> dataFSM;
@@ -209,14 +209,14 @@ namespace WellDunne.LanCaster
                             {
                                 Queue<byte[]> packet = sock.RecvAll();
 
-                                if (packet.Count == 0) return DataSUBState.Recv;
+                                if (packet.Count == 0) return new ZMQStateMasheen<DataSUBState>.MoveOperation(DataSUBState.Recv, false);
                                 string sub = Encoding.Unicode.GetString(packet.Dequeue());
-                                if (packet.Count == 0) return DataSUBState.Recv;
+                                if (packet.Count == 0) return new ZMQStateMasheen<DataSUBState>.MoveOperation(DataSUBState.Recv, false);
                                 string cmd = Encoding.Unicode.GetString(packet.Dequeue());
 
                                 if ((naks != null) && (cmd == "DATA"))
                                 {
-                                    if (packet.Count == 0) return DataSUBState.Recv;
+                                    if (packet.Count == 0) return new ZMQStateMasheen<DataSUBState>.MoveOperation(DataSUBState.Recv, false);
                                     int chunkIdx = BitConverter.ToInt32(packet.Dequeue(), 0);
 
                                     // Count the number of messages received from the network:
@@ -227,7 +227,7 @@ namespace WellDunne.LanCaster
                                     if (!naks[chunkIdx])
                                     {
                                         trace("ALREADY RECV {0}", chunkIdx);
-                                        return DataSUBState.Recv;
+                                        return new ZMQStateMasheen<DataSUBState>.MoveOperation(DataSUBState.Recv, false);
                                     }
 
                                     trace("RECV {0}", chunkIdx);
@@ -235,25 +235,26 @@ namespace WellDunne.LanCaster
                                     // Queue up the disk writes with PUSH/PULL and an HWM on a separate thread to maintain as
                                     // constant disk write throughput as we can get... The HWM will enforce the PUSHer to block
                                     // when the PULLer cannot receive yet.
-                                    if (packet.Count == 0) return DataSUBState.Recv;
+                                    if (packet.Count == 0) return new ZMQStateMasheen<DataSUBState>.MoveOperation(DataSUBState.Recv, false);
                                     byte[] chunk = packet.Dequeue();
                                     disk.SendMore(cmdWrite);
                                     disk.SendMore(BitConverter.GetBytes(chunkIdx));
+                                    // This will block if the disk queue gets full:
                                     disk.Send(chunk);
                                     chunk = null;
 
-                                    return DataSUBState.Recv;
+                                    return new ZMQStateMasheen<DataSUBState>.MoveOperation(DataSUBState.Recv, false);
                                 }
                                 else if (cmd == "PING")
                                 {
-                                    if (shuttingDown) return DataSUBState.Recv;
+                                    if (shuttingDown) return new ZMQStateMasheen<DataSUBState>.MoveOperation(DataSUBState.Recv, false);
 
                                     controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendALIVE, null));
-                                    return DataSUBState.Recv;
+                                    return new ZMQStateMasheen<DataSUBState>.MoveOperation(DataSUBState.Recv, false);
                                 }
                                 else
                                 {
-                                    return DataSUBState.Recv;
+                                    return new ZMQStateMasheen<DataSUBState>.MoveOperation(DataSUBState.Recv, false);
                                 }
                             })
                         );
@@ -277,82 +278,78 @@ namespace WellDunne.LanCaster
                                     {
                                         var msg = controlStateQueue.Dequeue();
                                         tmpControlState = msg.Object;
-                                        return msg.NewState;
+                                        return new ZMQStateMasheen<ControlREQState>.MoveOperation(msg.NewState, true);
                                     }
                                 }
 
-                                // A dummy OUT event? We don't have anything to send, so just sleep:
-                                if ((revents & IOMultiPlex.POLLOUT) == IOMultiPlex.POLLOUT) Thread.Sleep(1);
-                                return ControlREQState.Nothing;
+                                return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
                             }),
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendALIVE, (sock, revents) =>
                             {
-                                if (shuttingDown) return ControlREQState.Nothing;
-                                if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
+                                if (shuttingDown) return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
+                                //if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
 
                                 ctl.SendMore(ctl.Identity);
                                 ctl.Send("ALIVE", Encoding.Unicode);
 
-                                return ControlREQState.RecvALIVE;
+                                return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.RecvALIVE, false);
                             }),
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.RecvALIVE, (sock, revents) =>
                             {
-                                if ((revents & IOMultiPlex.POLLIN) != IOMultiPlex.POLLIN) return ControlREQState.Nothing;
+                                //if ((revents & IOMultiPlex.POLLIN) != IOMultiPlex.POLLIN) return ControlREQState.Nothing;
 
                                 Queue<byte[]> packet = ctl.RecvAll();
 
-                                if (packet.Count == 0) return ControlREQState.Nothing;
+                                if (packet.Count == 0) return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
                                 string cmd = Encoding.Unicode.GetString(packet.Dequeue());
                                 trace("Server: '{0}'", cmd);
 
-                                if (cmd == "") return ControlREQState.Nothing;
-                                else if (cmd == "WHOAREYOU") return ControlREQState.SendJOIN;
+                                if (cmd == "") return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
+                                else if (cmd == "WHOAREYOU") return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.SendJOIN, true);
 
-                                return ControlREQState.Nothing;
+                                return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
                             }),
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendJOIN, (sock, revents) =>
                             {
-                                if (shuttingDown) return ControlREQState.Nothing;
-                                if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
+                                if (shuttingDown) return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
+                                //if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
 
                                 // Send a JOIN request:
                                 ctl.SendMore(ctl.Identity);
                                 ctl.Send("JOIN", Encoding.Unicode);
 
-                                return ControlREQState.RecvJOIN;
+                                return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.RecvJOIN, false);
                             }),
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.RecvJOIN, (sock, revents) =>
                             {
-                                if ((revents & IOMultiPlex.POLLIN) != IOMultiPlex.POLLIN) return ControlREQState.Nothing;
-
                                 Queue<byte[]> packet = ctl.RecvAll();
-                                if (packet.Count == 0) return ControlREQState.Nothing;
+                                if (packet.Count == 0) return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
 
                                 string resp = Encoding.Unicode.GetString(packet.Dequeue());
                                 if (resp != "JOINED")
                                 {
                                     // TODO: handle this failure.
-                                    return ControlREQState.Nothing;
+                                    return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
                                 }
 
                                 // TODO: make this atomically succeed or fail without corrupting state
-                                if (packet.Count == 0) return ControlREQState.Nothing;
+                                if (packet.Count == 0) return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
                                 numChunks = BitConverter.ToInt32(packet.Dequeue(), 0);
                                 numBytes = ((numChunks + 7) & ~7) >> 3;
                                 nakBuf = new byte[numBytes];
-                                if (packet.Count == 0) return ControlREQState.Nothing;
+                                if (packet.Count == 0) return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
                                 chunkSize = BitConverter.ToInt32(packet.Dequeue(), 0);
-                                if (packet.Count == 0) return ControlREQState.Nothing;
+                                if (packet.Count == 0) return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
                                 int numFiles = BitConverter.ToInt32(packet.Dequeue(), 0);
 
                                 List<TarballEntry> tbes = new List<TarballEntry>(numFiles);
                                 for (int i = 0; i < numFiles; ++i)
                                 {
-                                    if (packet.Count == 0) return ControlREQState.Nothing;
+                                    if (packet.Count == 0) return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
                                     string fiName = Encoding.Unicode.GetString(packet.Dequeue());
-                                    if (packet.Count == 0) return ControlREQState.Nothing;
+                                    if (packet.Count == 0) return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
                                     long length = BitConverter.ToInt64(packet.Dequeue(), 0);
-                                    if (packet.Count == 0) return ControlREQState.Nothing;
+                                    if (packet.Count == 0) return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
                                     byte[] hash = packet.Dequeue();
 
                                     TarballEntry tbe = new TarballEntry(fiName, length, hash);
@@ -379,14 +376,13 @@ namespace WellDunne.LanCaster
                                 }
                                 ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
 
-                                return ControlREQState.SendNAKS;
+                                return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.SendNAKS, true);
                             }),
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.SendNAKS, (sock, revents) =>
                             {
-                                if (shuttingDown) return ControlREQState.Nothing;
-                                if ((revents & IOMultiPlex.POLLOUT) != IOMultiPlex.POLLOUT) return ControlREQState.Nothing;
+                                if (shuttingDown) return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
 
-                                if (nakBuf == null) return ControlREQState.Nothing;
+                                if (nakBuf == null) return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
 
                                 // Send our NAKs:
                                 ctl.SendMore(ctl.Identity);
@@ -396,16 +392,14 @@ namespace WellDunne.LanCaster
                                 trace("SEND NAK");
                                 ctl.Send(nakBuf);
 
-                                return ControlREQState.RecvNAKS;
+                                return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.RecvNAKS, false);
                             }),
                             new ZMQStateMasheen<ControlREQState>.State(ControlREQState.RecvNAKS, (sock, revents) =>
                             {
-                                if ((revents & IOMultiPlex.POLLIN) != IOMultiPlex.POLLIN) return ControlREQState.Nothing;
-
                                 Queue<byte[]> packet = ctl.RecvAll();
                                 // Don't care what the response is for now.
 
-                                return ControlREQState.Nothing;
+                                return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.Nothing, false);
                             })
                         );
 
@@ -419,7 +413,10 @@ namespace WellDunne.LanCaster
 
                             // Count the number of messages written to disk:
                             ++msgsWritten;
-                            ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
+                            ++ackCount;
+
+                            // Profiled - terrible performance. Not a big surprise here.
+                            //ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
 
                             // If we ran up the timer, send more ACKs:
                             if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 100d)
@@ -431,9 +428,12 @@ namespace WellDunne.LanCaster
 
                         pollItems[0].PollInHandler += new PollHandler(dataFSM.StateMasheen);
                         pollItems[1].PollInHandler += new PollHandler(controlFSM.StateMasheen);
-                        pollItems[1].PollOutHandler += new PollHandler(controlFSM.StateMasheen);
+                        //pollItems[1].PollOutHandler += new PollHandler(controlFSM.StateMasheen);
 
                         DateTimeOffset lastRecv = DateTimeOffset.UtcNow;
+
+                        // Start the state machine with a SEND:
+                        controlFSM.StateMasheen(ctl, IOMultiPlex.POLLOUT);
 
                         // Create a socket poller for the data socket:
                         while (true)
@@ -450,7 +450,7 @@ namespace WellDunne.LanCaster
                             }
 
                             trace("POLL");
-                            while ((ctx.Poll(pollItems, 10000) == 1) && (ctl != null))
+                            while ((ctx.Poll(pollItems, 100000) == 1) && (ctl != null))
                             {
                             }
 
