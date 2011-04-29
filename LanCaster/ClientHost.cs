@@ -148,7 +148,7 @@ namespace WellDunne.LanCaster
                     diskACK = new Socket(SocketType.PULL);
 
                     // Set the HWM for the disk PUSH so that the PUSH blocks if the PULL can't keep up writing:
-                    disk.SNDHWM = diskHWM;
+                    if (diskHWM > 0) disk.SNDHWM = diskHWM;
                     //disk.SndBuf = 1048576 * diskHWM * 4;
 
                     // inproc:// binds are immediate.
@@ -297,7 +297,7 @@ namespace WellDunne.LanCaster
 
                                 if (packet.Count == 0) return ControlREQState.Nothing;
                                 string cmd = Encoding.Unicode.GetString(packet.Dequeue());
-                                trace("Server: '{0}'", cmd);
+                                //trace("Server: '{0}'", cmd);
 
                                 if (cmd == "") return ControlREQState.Nothing;
                                 else if (cmd == "WHOAREYOU") return new ZMQStateMasheen<ControlREQState>.MoveOperation(ControlREQState.SendJOIN, true);
@@ -413,7 +413,7 @@ namespace WellDunne.LanCaster
                             //ackCount = naks.Cast<bool>().Take(numChunks).Count(b => !b);
 
                             // If we ran up the timer, send more ACKs:
-                            if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 100d)
+                            if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 250d)
                             {
                                 lastSentNAKs = DateTimeOffset.UtcNow;
                                 controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendNAKS, null));
@@ -445,7 +445,7 @@ namespace WellDunne.LanCaster
                             if (!shuttingDown && IsSendState(controlFSM.CurrentState))
                             {
                                 // If we ran up the timer, send more NAKs:
-                                if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 100d)
+                                if (DateTimeOffset.UtcNow.Subtract(lastSentNAKs).TotalMilliseconds >= 200d)
                                 {
                                     lastSentNAKs = DateTimeOffset.UtcNow;
                                     controlStateQueue.Enqueue(new QueuedControlMessage(ControlREQState.SendNAKS, null));
@@ -471,14 +471,11 @@ namespace WellDunne.LanCaster
                                     }
 
                                     tmpControlState = msg.Object;
+
                                     // Run the control state machine to SEND:
                                     controlFSM.CurrentState = msg.NewState;
                                     controlFSM.StateMasheen(ctl, IOMultiPlex.POLLOUT);
                                 }
-                            }
-
-                            for (int i = 0; (ctx.Poll(pollItems, 1000) == 1) && (i < networkHWM / 2); ++i)
-                            {
                             }
 
                             // Measure our message send rate per minute:
@@ -504,6 +501,9 @@ namespace WellDunne.LanCaster
                                 disk.Send(cmdExit);
                                 break;
                             }
+
+                            if (ctx.Poll(pollItems, 100L) == 0)
+                                Thread.Sleep(1);
                         }
 
                         // Wait for the disk writer to finish up:
@@ -560,7 +560,7 @@ namespace WellDunne.LanCaster
                     diskACK = new Socket(SocketType.PUSH)
                 )
                 {
-                    disk.RCVHWM = diskHWM;
+                    if (diskHWM > 0) disk.RCVHWM = diskHWM;
                     //disk.RcvBuf = 1048576 * diskHWM * 4;
                     disk.Connect("inproc://disk");
                     diskACK.Connect("inproc://diskack");
@@ -617,9 +617,9 @@ namespace WellDunne.LanCaster
 
                     while (!done)
                     {
-                        if (ctx.Poll(pollItems, 10000L) == 0)
+                        if (ctx.Poll(pollItems, 1000L) == 0)
                         {
-                            Thread.Sleep(1);
+                            Thread.Sleep(5);
                         }
                     }
                 }
