@@ -120,7 +120,8 @@ namespace WellDunne.LanCaster
 
         private static void trace(string format, params object[] args)
         {
-            Trace.WriteLineIf(doLogging.Enabled, String.Format(format, args), "server");
+            Console.WriteLine(format, args);
+            //Trace.WriteLineIf(doLogging.Enabled, String.Format(format, args), "server");
         }
 
         private class ControlHandler
@@ -459,7 +460,7 @@ namespace WellDunne.LanCaster
                                 where countNAKdClients > 0
                                 orderby countNAKdClients descending
                                 select i
-                            ).Take(16).ToList();
+                            ).Take(hwm / 2).ToList();
 
                             chunkWindowStart = chunkIdxs.LastOrDefault();
                         }
@@ -469,7 +470,7 @@ namespace WellDunne.LanCaster
                             int? chunkIdx = idx;
 
                             // Chunk index first:
-                            //trace("SEND chunk: {0}", chunkIdx.Value);
+                            trace("SEND chunk: {0}", chunkIdx.Value);
                             data.SendMore(this.subscription, Encoding.Unicode);
                             data.SendMore("DATA", Encoding.Unicode);
                             data.SendMore(BitConverter.GetBytes(chunkIdx.Value));
@@ -515,9 +516,9 @@ namespace WellDunne.LanCaster
                             //chunkSentLastElapsedMilliseconds[chunkIdx.Value] = sendTimer.ElapsedMilliseconds;
 
                             if (ChunkSent != null) ChunkSent(this, chunkIdx.Value);
-                            //trace("COMPLETE chunk: {0}", chunkIdx.Value);
+                            trace("COMPLETE chunk: {0}", chunkIdx.Value);
 
-                            Thread.Sleep(1);
+                            //Thread.Sleep(1);
                             ++msgsSent;
                         }
                     }
