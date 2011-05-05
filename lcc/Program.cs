@@ -292,7 +292,8 @@ namespace WellDunne.LanCaster.Client
 
                     // We must clone due to thread-safety issues using enumerators:
                     BitArray naks = host.NAKs.Clone() as BitArray;
-                    IEnumerator<bool> boolACKs = naks.Cast<bool>().Take(numChunks).GetEnumerator();
+                    int nakI = 0;
+                    //IEnumerator<bool> boolACKs = naks.Cast<bool>().Take(numChunks).GetEnumerator();
                     if (blocks > 0)
                     {
                         int lastc = 0, c = 0, subc = 0;
@@ -309,9 +310,9 @@ namespace WellDunne.LanCaster.Client
 
                             bool allOn = true;
                             bool allOff = false;
-                            for (int i = 0; (i < numBlocks) && boolACKs.MoveNext(); ++i)
+                            for (int i = 0; (i < numBlocks) && (nakI < host.NumChunks); ++i, ++nakI)
                             {
-                                bool curr = !boolACKs.Current;
+                                bool curr = !naks[nakI];
                                 allOn = allOn & curr;
                                 allOff = allOff | curr;
                             }
@@ -338,8 +339,8 @@ namespace WellDunne.LanCaster.Client
                                 subc = 0;
                             }
 
-                            if (!boolACKs.MoveNext()) break;
-                            bool curr = boolACKs.Current;
+                            if (++nakI >= host.NumChunks) break;
+                            bool curr = !naks[nakI];
 
                             for (int x = lastc; (x < c) && (c < usableWidth); ++x)
                             {

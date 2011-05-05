@@ -70,7 +70,7 @@ namespace WellDunne.LanCaster
 
         private void trace(string format, params object[] args)
         {
-            Console.WriteLine(format, args);
+            //Console.WriteLine(format, args);
             //Trace.WriteLineIf(this.doLogging.Enabled, String.Format(format, args), "client");
         }
 

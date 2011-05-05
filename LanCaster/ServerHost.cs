@@ -120,7 +120,7 @@ namespace WellDunne.LanCaster
 
         private static void trace(string format, params object[] args)
         {
-            Console.WriteLine(format, args);
+            //Console.WriteLine(format, args);
             //Trace.WriteLineIf(doLogging.Enabled, String.Format(format, args), "server");
         }
 
